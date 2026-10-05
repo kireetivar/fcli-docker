@@ -1,0 +1,9 @@
+The {{ if .Values.schedule.enabled }}CronJob{{ else }}Job{{ end }} {{ include "bulk.name" . }} uses existing Secret {{ .Values.existingSecret }}.
+It runs {{ .Values.audit.action }} with dryRun={{ .Values.audit.dryRun }} and maxAudits={{ .Values.audit.maxAudits }}.
+{{ if .Values.schedule.enabled }}Scheduling suspended: {{ .Values.schedule.suspend }}.{{ end }}
+
+Inspect logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} --all-containers=true --prefix=true
+
+This fcli preview may return zero despite individual audit failures. Review action output and SSC results.
+See docs/bulk-audit-poc.md before enabling live execution or a schedule.

@@ -1,0 +1,31 @@
+{{- if le (int .Values.job.activeDeadlineSeconds) (int .Values.audit.timeoutSeconds) }}
+{{- fail "job.activeDeadlineSeconds must exceed audit.timeoutSeconds to allow cleanup" }}
+{{- end }}
+{{- if .Values.schedule.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "bulk.name" . }}
+  labels:
+    {{- include "bulk.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.schedule.cron | quote }}
+  timeZone: {{ .Values.schedule.timeZone | quote }}
+  suspend: {{ .Values.schedule.suspend }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: {{ .Values.schedule.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.schedule.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.schedule.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      {{- include "bulk.jobSpec" . | nindent 6 }}
+{{- else }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bulk.name" . }}
+  labels:
+    {{- include "bulk.labels" . | nindent 4 }}
+spec:
+  {{- include "bulk.jobSpec" . | nindent 2 }}
+{{- end }}

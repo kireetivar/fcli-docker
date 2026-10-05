@@ -70,6 +70,8 @@ RUN apk add --no-cache curl openssl ca-certificates
 ARG FCLI_VERSION
 ARG TARGETPLATFORM
 ARG CACHE_BUST
+# Optional archive pin, particularly useful for rolling development releases.
+ARG FCLI_SHA256
 
 # Validate FCLI_VERSION is provided
 RUN test -n "$FCLI_VERSION" || (echo "ERROR: FCLI_VERSION build argument is required" && exit 1)
@@ -107,6 +109,9 @@ RUN echo "Cache bust: ${CACHE_BUST}" && \
 
 # Verify signature
 RUN ARCHIVE=$(cat /tmp/archive_name) && \
+    if [ -n "$FCLI_SHA256" ]; then \
+      echo "$FCLI_SHA256  /tmp/$ARCHIVE" | sha256sum -c -; \
+    fi && \
     echo "Verifying signature..." && \
     openssl dgst -sha256 -verify /tmp/keys/fortify.pub \
       -signature "/tmp/${ARCHIVE}.rsa_sha256" "/tmp/${ARCHIVE}" && \
@@ -209,6 +214,26 @@ ENV SC_CLIENT_HOME=/opt/fortify/sc-client
 ENV SC_CLIENT_CMD=/opt/fortify/sc-client/bin/scancentral
 ENV PATH="/opt/fortify/sc-client/bin:${PATH}"
 USER fcli
+
+# ============================================================================
+# Stage: fcli-bulk-audit
+# One-shot runner for SSC/Aviator bulk audits. No credentials in the image.
+# ============================================================================
+FROM fcli-ubi9 AS fcli-bulk-audit
+ARG FCLI_SHA256
+LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit (POC)" \
+      org.opencontainers.image.description="One-shot SSC and Aviator bulk-audit runner" \
+      com.fortify.fcli.archive.sha256="${FCLI_SHA256}"
+USER root
+COPY bulk-audit.sh /usr/local/bin/fcli-bulk-audit
+RUN chmod 0755 /usr/local/bin/fcli-bulk-audit && \
+    mkdir -p /work && chown 10001:10001 /work
+USER fcli
+# Verify packaged action interfaces without authenticating or contacting SSC.
+RUN /usr/local/bin/fcli-bulk-audit --check-image
+WORKDIR /tmp
+ENTRYPOINT ["/usr/local/bin/fcli-bulk-audit"]
+CMD []
 
 # ============================================================================
 # Stage: fcli-scratch

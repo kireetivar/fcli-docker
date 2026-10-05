@@ -1,0 +1,273 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(|sha256:[a-f0-9]{64})$"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      },
+      "required": [
+        "repository",
+        "tag",
+        "digest",
+        "pullPolicy"
+      ]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "cron": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suspend": {
+          "type": "boolean"
+        },
+        "startingDeadlineSeconds": {
+          "type": "integer",
+          "minimum": 10
+        },
+        "successfulJobsHistoryLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failedJobsHistoryLimit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "enabled",
+        "cron",
+        "timeZone",
+        "suspend",
+        "startingDeadlineSeconds",
+        "successfulJobsHistoryLimit",
+        "failedJobsHistoryLimit"
+      ]
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "bulkaudit",
+            "bulkaudit-sast",
+            "bulkaudit-dast"
+          ]
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "maxAudits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999999
+        },
+        "filter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "excludeFilter": {
+          "type": "string"
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999999
+        },
+        "sscUrl": {
+          "type": "string",
+          "pattern": "^https://[^@?#\\s]+$"
+        },
+        "aviatorUrl": {
+          "type": "string",
+          "pattern": "^https://[^@?#\\s]+$"
+        },
+        "aviatorTenant": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "action",
+        "dryRun",
+        "maxAudits",
+        "filter",
+        "excludeFilter",
+        "timeoutSeconds",
+        "sscUrl",
+        "aviatorUrl",
+        "aviatorTenant"
+      ]
+    },
+    "existingSecret": {
+      "type": "string",
+      "minLength": 1
+    },
+    "truststore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passwordKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "enum": [
+            "JKS",
+            "PKCS12"
+          ]
+        }
+      },
+      "required": [
+        "existingSecret",
+        "key",
+        "passwordKey",
+        "type"
+      ]
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "activeDeadlineSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ttlSecondsAfterFinished": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 30
+        }
+      },
+      "required": [
+        "activeDeadlineSeconds",
+        "ttlSecondsAfterFinished",
+        "terminationGracePeriodSeconds"
+      ]
+    },
+    "resources": {
+      "type": "object",
+      "required": [
+        "requests",
+        "limits"
+      ],
+      "properties": {
+        "requests": {
+          "type": "object",
+          "required": [
+            "cpu",
+            "memory"
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "cpu",
+            "memory"
+          ]
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionSizeLimit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "temporarySizeLimit": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "sessionSizeLimit",
+        "temporarySizeLimit"
+      ]
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "image",
+    "imagePullSecrets",
+    "schedule",
+    "audit",
+    "existingSecret",
+    "truststore",
+    "job",
+    "resources",
+    "storage",
+    "podAnnotations",
+    "nodeSelector"
+  ],
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,55 @@
+image:
+  repository: fcli-bulk-audit
+  tag: poc-20261005
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Default: a one-shot Job. Enable scheduling only after reviewing a live test.
+schedule:
+  enabled: false
+  cron: "0 2 * * *"
+  timeZone: Etc/UTC
+  suspend: true
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+
+audit:
+  action: bulkaudit-sast
+  dryRun: true
+  maxAudits: 1
+  filter: CHANGE_ME
+  excludeFilter: ""
+  timeoutSeconds: 3600
+  sscUrl: https://CHANGE_ME/ssc
+  aviatorUrl: https://CHANGE_ME
+  aviatorTenant: CHANGE_ME
+
+# Create this separately. The chart never creates or accepts secret values.
+# Required keys: ssc-token, aviator-token, aviator-private-key.
+existingSecret: fcli-bulk-audit-credentials
+truststore:
+  existingSecret: ""
+  key: truststore.jks
+  passwordKey: password
+  type: JKS
+
+job:
+  activeDeadlineSeconds: 3660
+  ttlSecondsAfterFinished: 86400
+  terminationGracePeriodSeconds: 45
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+storage:
+  sessionSizeLimit: 64Mi
+  temporarySizeLimit: 1Gi
+podAnnotations: {}
+nodeSelector:
+  kubernetes.io/arch: amd64

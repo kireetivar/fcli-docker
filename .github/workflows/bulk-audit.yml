@@ -1,0 +1,40 @@
+name: Validate bulk-audit POC
+on:
+  pull_request:
+    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', '.github/workflows/bulk-audit.yml']
+  push:
+    branches: [main]
+    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', '.github/workflows/bulk-audit.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .cache/test-venv
+          .cache/test-venv/bin/pip install -r tests/requirements.txt
+          mkdir -p .cache/helm
+          cd .cache/helm
+          archive=helm-v4.2.1-linux-amd64.tar.gz
+          curl -fsSLO "https://get.helm.sh/$archive"
+          curl -fsSLO "https://get.helm.sh/$archive.sha256sum"
+          sha256sum -c "$archive.sha256sum"
+          tar -xzf "$archive"
+          echo "$PWD/linux-amd64" >> "$GITHUB_PATH"
+      - name: Runner and deployment checks
+        run: |
+          .cache/test-venv/bin/python -m unittest discover -s tests -v
+          helm lint charts/fcli-bulk-audit
+          docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config --quiet
+          docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml -f deploy/compose/compose.truststore.yaml config --quiet
+      - name: Build and smoke-test Linux images without credentials
+        run: bash tests/smoke-images.sh

@@ -2,6 +2,18 @@
 
 This directory contains Dockerfiles and build configurations for creating fcli Docker images.
 
+## Bulk-audit POC
+
+The [bulk-audit runbook](docs/bulk-audit-poc.md) covers the dedicated runner image,
+Docker Compose, and the Helm Job/CronJob chart. Start with a SAST dry run, then
+review the selection before performing at most one live audit. Credentials are
+mounted as files; host fcli sessions are not required. The POC uses a pinned Aviator
+development build because the latest stable release checked does not contain the
+split SAST/DAST actions. See the runbook for validation status and limitations.
+
+For the purpose of Compose versus Helm and secret-management options, see the
+[deployment design](docs/bulk-audit-deployment.md).
+
 ## Available Images
 
 ### Published Images (Docker Hub: `fortifydocker/fcli`)

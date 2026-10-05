@@ -1,0 +1,8 @@
+.cache/
+**/__pycache__/
+deploy/compose/.env
+deploy/compose/secrets/
+deploy/compose/certs/
+deploy/compose/logs/
+*.image.tar
+charts/fcli-bulk-audit/values.local.yaml
