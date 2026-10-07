@@ -112,6 +112,8 @@ fi
 
 case "$action" in bulkaudit|bulkaudit-sast|bulkaudit-dast) ;; *) fail invalid_action ;; esac
 case "$dry_run" in true|false) ;; *) fail invalid_dry_run ;; esac
+ssc_insecure=${SSC_INSECURE:-false}
+case "$ssc_insecure" in true|false) ;; *) fail invalid_ssc_insecure ;; esac
 [[ $max_audits =~ ^[1-9][0-9]{0,5}$ ]] || fail invalid_max_audits
 for name in SSC_URL AVIATOR_URL AVIATOR_TENANT; do
     value=${!name:-}
@@ -175,9 +177,11 @@ run_cli() {
     event phase_completed
 }
 
-event started "action=$action dry_run=$dry_run max_audits=$max_audits"
+event started "action=$action dry_run=$dry_run max_audits=$max_audits ssc_insecure=$ssc_insecure"
 phase=ssc_login
-run_cli true ssc session login --url "$SSC_URL" --disable sc-sast,sc-dast
+ssc_login_args=(ssc session login --url "$SSC_URL" --disable sc-sast,sc-dast)
+if [[ $ssc_insecure == true ]]; then ssc_login_args+=(-k); fi
+run_cli true "${ssc_login_args[@]}"
 unset ssc_token
 phase=aviator_login
 run_cli true aviator session login --url "$AVIATOR_URL" --token "file:$aviator_file"

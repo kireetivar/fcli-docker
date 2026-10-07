@@ -124,6 +124,9 @@
           "type": "string",
           "pattern": "^https://[^@?#\\s]+$"
         },
+        "sscInsecure": {
+          "type": "boolean"
+        },
         "aviatorUrl": {
           "type": "string",
           "pattern": "^https://[^@?#\\s]+$"

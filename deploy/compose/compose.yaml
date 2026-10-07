@@ -23,6 +23,7 @@ services:
       - /tmp:rw,nosuid,nodev,size=1g,uid=10001,gid=10001,mode=0700
     environment:
       SSC_URL: ${SSC_URL:?Set SSC_URL in .env}
+      SSC_INSECURE: ${SSC_INSECURE:-false}
       AVIATOR_URL: ${AVIATOR_URL:?Set AVIATOR_URL in .env}
       AVIATOR_TENANT: ${AVIATOR_TENANT:?Set AVIATOR_TENANT in .env}
       BULK_AUDIT_FILTER: ${BULK_AUDIT_FILTER:-}

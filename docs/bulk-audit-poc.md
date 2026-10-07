@@ -63,6 +63,20 @@ chmod 700 secrets logs
 
 Edit `.env` with your SSC URL, Aviator URL, and tenant. `BULK_AUDIT_FILTER` is optional: unset, empty, or whitespace-only values omit the inclusion filter, so fcli considers all eligible application versions accessible to the SSC session. An exclusion filter still applies if provided. Set an inclusion filter when you want to target a particular application/version. Keep `BULK_AUDIT_DRY_RUN=true` and `BULK_AUDIT_MAX_AUDITS=1` for the initial preview; the audit limit still applies without a filter. `CHANGE_ME` placeholders remain invalid, so clear an old `BULK_AUDIT_FILTER=CHANGE_ME` entry or remove that line.
 
+`SSC_INSECURE=false` is the default. To use fcli's insecure SSC login mode, set `SSC_INSECURE=true` in `.env`; the runner adds `-k` to `fcli ssc session login`. This disables SSC TLS certificate verification for the session used by the audit. Aviator certificate verification and build artifact verification remain enabled. The Helm equivalent is `audit.sscInsecure: true`. Invalid values other than `true` and `false` are rejected before authentication. A configured trusted CA remains an alternative through `compose.truststore.yaml`.
+
+To retry after updating the runner, pull the branch, preserve your existing `.env` and credential files, add `SSC_INSECURE=true`, keep `BULK_AUDIT_DRY_RUN=true`, and run from `deploy/compose`:
+
+```bash
+docker compose config --quiet
+docker compose build bulk-audit
+docker compose up --no-build --abort-on-container-exit --exit-code-from bulk-audit --force-recreate bulk-audit
+echo "Exit code: $?"
+docker compose logs --no-color bulk-audit > logs/dry-run.log
+```
+
+The `started` event includes `ssc_insecure=true` when enabled. Confirm SSC login completes, then check Aviator login, admin setup, and the dry-run preview before proceeding to a live audit.
+
 Use a trusted editor or your secret-management tool to create these UTF-8 files **without a byte-order mark**:
 
 ```text

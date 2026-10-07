@@ -115,6 +115,21 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('mock audit output', result.stdout)
         self.assertIn('mock file diagnostic', result.stderr)
         self.assertIn('process_exit_does_not_guarantee_all_audits_succeeded', result.stderr)
+        self.assertNotIn('\n-k\n', self.calls())
+
+    def test_ssc_insecure_only_applies_to_ssc_login(self):
+        for value in ("true", "false"):
+            with self.subTest(ssc_insecure=value):
+                (self.base / "calls").write_text("")
+                result = self.run_runner(SSC_INSECURE=value)
+                self.assertEqual(0, result.returncode, result.stderr)
+                calls = self.calls().split('===CALL===\n')[1:]
+                ssc_login = next(call for call in calls if call.startswith('ssc\nsession\nlogin\n'))
+                self.assertEqual(value == "true", '\n-k\n' in ssc_login)
+                for call in calls:
+                    if call != ssc_login:
+                        self.assertNotIn('\n-k\n', call)
+                self.assertIn('ssc_insecure=' + value, result.stderr)
 
     def test_dast_and_alias(self):
         for action in ("bulkaudit-dast", "bulkaudit"):
@@ -157,6 +172,7 @@ class RunnerTests(unittest.TestCase):
     def test_invalid_configuration_does_not_authenticate(self):
         for settings in ({"BULK_AUDIT_ACTION": "arbitrary"}, {"BULK_AUDIT_MAX_AUDITS": "-1"},
                          {"BULK_AUDIT_DRY_RUN": "yes"}, {"BULK_AUDIT_FILTER": "CHANGE_ME"},
+                         {"SSC_INSECURE": "yes"}, {"SSC_INSECURE": "true; echo injected"},
                          {"SSC_URL": "http://insecure"}, {"AVIATOR_TENANT": "CHANGE_ME"}):
             with self.subTest(settings=settings):
                 result = self.run_runner(**settings)

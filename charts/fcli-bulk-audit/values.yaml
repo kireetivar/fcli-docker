@@ -24,6 +24,8 @@ audit:
   excludeFilter: ""
   timeoutSeconds: 3600
   sscUrl: https://CHANGE_ME/ssc
+  # Set true to disable SSC TLS certificate verification at session login.
+  sscInsecure: false
   aviatorUrl: https://CHANGE_ME
   aviatorTenant: CHANGE_ME
 

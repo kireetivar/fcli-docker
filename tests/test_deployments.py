@@ -37,6 +37,7 @@ class HelmTests(unittest.TestCase):
         self.assertEqual("true", env["BULK_AUDIT_DRY_RUN"])
         self.assertEqual("1", env["BULK_AUDIT_MAX_AUDITS"])
         self.assertEqual("", env["BULK_AUDIT_FILTER"])
+        self.assertEqual("false", env["SSC_INSECURE"])
         self.assertNotIn("SSC_TOKEN", env)
         self.assertEqual("Memory", pod["volumes"][0]["emptyDir"]["medium"])
         self.assertEqual(0o440, pod["volumes"][2]["secret"]["defaultMode"])
@@ -57,7 +58,7 @@ class HelmTests(unittest.TestCase):
 
     def test_invalid_values_rejected(self):
         for setting in ("audit.action=arbitrary", "audit.maxAudits=0", "audit.sscUrl=http://insecure",
-                        "job.activeDeadlineSeconds=100", "image.digest=bad", "unknown=value"):
+                        "audit.sscInsecure=yes", "job.activeDeadlineSeconds=100", "image.digest=bad", "unknown=value"):
             with self.subTest(setting=setting):
                 self.render("--set", setting, success=False)
 
@@ -70,8 +71,31 @@ class HelmTests(unittest.TestCase):
                 env = {item["name"]: item["value"] for item in container["env"]}
                 self.assertEqual(expected, env["BULK_AUDIT_FILTER"])
 
+    def test_ssc_insecure_opt_in(self):
+        doc = self.render("--set", "audit.sscInsecure=true")
+        container = doc["spec"]["template"]["spec"]["containers"][0]
+        env = {item["name"]: item["value"] for item in container["env"]}
+        self.assertEqual("true", env["SSC_INSECURE"])
+        self.assertNotIn("AVIATOR_INSECURE", env)
+
 
 class ComposeTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("docker"), "Docker Compose is required for interpolation checks")
+    def test_ssc_insecure_interpolation(self):
+        compose = ROOT / "deploy/compose"
+        env = os.environ.copy()
+        for value in (None, "true", "false"):
+            with self.subTest(ssc_insecure=value):
+                env.pop("SSC_INSECURE", None)
+                if value is not None:
+                    env["SSC_INSECURE"] = value
+                result = subprocess.run(["docker", "compose", "--env-file", str(compose / ".env.example"),
+                                         "-f", str(compose / "compose.yaml"), "config", "--format", "json"],
+                                        env=env, capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                rendered = json.loads(result.stdout)["services"]["bulk-audit"]["environment"]
+                self.assertEqual(value or "false", rendered["SSC_INSECURE"])
+
     @unittest.skipUnless(shutil.which("docker"), "Docker Compose is required for interpolation checks")
     def test_optional_filter_interpolation(self):
         compose = ROOT / "deploy/compose"

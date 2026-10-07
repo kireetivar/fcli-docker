@@ -56,6 +56,8 @@ template:
         env:
           - name: SSC_URL
             value: {{ .Values.audit.sscUrl | quote }}
+          - name: SSC_INSECURE
+            value: {{ .Values.audit.sscInsecure | default false | quote }}
           - name: AVIATOR_URL
             value: {{ .Values.audit.aviatorUrl | quote }}
           - name: AVIATOR_TENANT
