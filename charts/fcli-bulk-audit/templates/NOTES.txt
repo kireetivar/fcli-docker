@@ -5,5 +5,5 @@ It runs {{ .Values.audit.action }} with dryRun={{ .Values.audit.dryRun }} and ma
 Inspect logs:
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} --all-containers=true --prefix=true
 
-This fcli preview may return zero despite individual audit failures. Review action output and SSC results.
+fcli may return zero despite individual audit failures. Review action output and SSC results.
 See docs/bulk-audit-poc-guide.md before enabling live execution or a schedule.

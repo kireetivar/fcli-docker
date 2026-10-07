@@ -11,8 +11,6 @@
 | Helm chart | `0.2.0` |
 | Platform | Linux containers on Intel or AMD 64-bit processors |
 
-The project owner confirmed successful Docker Compose and Helm tests for the previous revision.
-Repeat the selected deployment test with the new image before regular use.
 This POC does not establish production support for the fcli actions.
 
 ## 1. Purpose and design
@@ -79,11 +77,6 @@ Use a filter to select the intended test application.
 | [CloudWatch override](../deploy/compose/compose.cloudwatch.yaml) | Send Docker console output through the Docker daemon's AWS identity. |
 | [Diagnostic collector example](../deploy/logging/fluent-bit-cloudwatch.conf) | Send diagnostic files through a separate Fluent Bit collector. |
 | [Tests](../tests) | Check execution behavior and rendered deployment configuration without live credentials. |
-
-The cleanup groups runner operations into named functions.
-The tests use volume names instead of YAML list positions.
-The workflow checks pushes to `main` and `kireetivar/bulk-audit-poc`.
-We did not change the parent fcli repository.
 
 For an existing installation:
 
@@ -366,10 +359,7 @@ New-Item -ItemType Directory -Force logs/fcli
 docker compose cp bulk-audit:/logs/. logs/fcli/
 ```
 
-The POC does not automatically delete retained diagnostic files.
-Set an archive and removal schedule before recurring use.
-Remove only completed runs after confirming collection.
-The runner does not have enough delivery information to delete files safely.
+Delete diagnostic files only after each run finishes and you confirm log collection or export.
 
 ### Docker console output to CloudWatch
 
@@ -403,7 +393,6 @@ Give the collector its own AWS identity, destination variables, and writable per
 The example stores read offsets and buffered records there.
 The output buffer limit is 128 MB; monitor delivery failures and storage use.
 Full buffers can cause lost records.
-Confirm CloudWatch receipt before removing source files.
 See [Fluent Bit's CloudWatch output](https://docs.fluentbit.io/manual/data-pipeline/outputs/cloudwatch).
 
 ## 7. Troubleshooting and limits
