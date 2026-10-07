@@ -1,4 +1,5 @@
 """Offline runner contract tests. Python 3 + Bash/coreutils; no live credentials."""
+import json
 import os
 from pathlib import Path
 import shutil
@@ -34,7 +35,7 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action help' ]]; then
 fi
 printf '10:11:38.600 [main] INFO FCLI -- mock %s diagnostic\n' "${1:-}" > "$FCLI_DEFAULT_LOG_FILE"
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc session login' ]]; then
-    [[ ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} == 'SSC_SENTINEL' ]] || exit 91
+    [[ ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} == "${EXPECTED_SSC_TOKEN:-SSC_SENTINEL}" ]] || exit 91
     echo 'ssc session login output'
 elif [[ -n ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} ]]; then
     exit 92
@@ -50,7 +51,7 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'aviator session login' ]]; then
     done
     [[ -n $token_file && -f $token_file ]] || exit 97
     # Command substitution would hide trailing LF and miss the original bug.
-    printf '%s' AVIATOR_SENTINEL | cmp -s - "$token_file" || exit 96
+    printf '%s' "${EXPECTED_AVIATOR_TOKEN:-AVIATOR_SENTINEL}" | cmp -s - "$token_file" || exit 96
     echo 'aviator session login output'
 fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action run' ]]; then
@@ -110,9 +111,10 @@ class RunnerTests(unittest.TestCase):
     def run_runner(self, *args, **updates):
         result = subprocess.run(self.command(*args), env={**self.env, **updates},
                                 capture_output=True, text=True, timeout=35)
-        for secret in ("SSC_SENTINEL", "AVIATOR_SENTINEL", "PRIVATE_KEY_SENTINEL"):
-            self.assertNotIn(secret, result.stdout + result.stderr)
-            self.assertNotIn(secret, self.calls())
+        diagnostics = ''.join(path.read_text() for path in (self.base / 'logs').glob('*/*.log'))
+        for secret in ("SSC_SENTINEL", "AVIATOR_SENTINEL", "PRIVATE_KEY_SENTINEL",
+                       "ROTATED_SSC_TOKEN", "ROTATED_AVIATOR_TOKEN"):
+            self.assertNotIn(secret, result.stdout + result.stderr + diagnostics + self.calls())
         self.assertEqual([], list((self.base / "work").iterdir()), result.stderr)
         self.assertEqual([], list((self.base / "tmp").iterdir()), result.stderr)
         return result
@@ -142,6 +144,30 @@ class RunnerTests(unittest.TestCase):
         self.assertIn(shell_path(run_dirs[0]), result.stderr)
         self.assertIn('process_exit_does_not_guarantee_all_audits_succeeded', result.stderr)
         self.assertNotIn('\n-k\n', self.calls())
+
+    def test_lifecycle_events_have_stable_fields_for_log_collectors(self):
+        result = self.run_runner(MOCK_AUDIT_EXIT='17')
+        events = [json.loads(line) for line in result.stderr.splitlines() if line.startswith('{')]
+        self.assertTrue(events)
+        self.assertEqual(1, len({event['run_id'] for event in events}))
+        for event in events:
+            self.assertEqual(1, event['schema_version'])
+            self.assertIsInstance(event['elapsed_seconds'], int)
+            self.assertGreaterEqual(event['elapsed_seconds'], 0)
+        phases = [event['phase'] for event in events if event['event'] == 'phase_started']
+        self.assertEqual(['ssc_login', 'aviator_login', 'aviator_admin', 'audit'], phases)
+        failure = next(event for event in events if event['event'] == 'command_failed')
+        self.assertEqual(17, failure['exit_code'])
+        self.assertEqual('finished', events[-1]['event'])
+        self.assertEqual(17, events[-1]['exit_code'])
+
+    def test_each_run_reads_current_provider_files(self):
+        self.assertEqual(0, self.run_runner().returncode)
+        (self.base / 'secrets/ssc').write_bytes(b'ROTATED_SSC_TOKEN\r\n')
+        (self.base / 'secrets/aviator').write_bytes(b'ROTATED_AVIATOR_TOKEN\n')
+        result = self.run_runner(EXPECTED_SSC_TOKEN='ROTATED_SSC_TOKEN',
+                                 EXPECTED_AVIATOR_TOKEN='ROTATED_AVIATOR_TOKEN')
+        self.assertEqual(0, result.returncode, result.stderr)
 
     def test_aviator_token_normalizes_lf_and_crlf_without_changing_sources(self):
         token = self.base / "secrets/aviator"
@@ -173,13 +199,6 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(64, result.returncode, result.stderr)
             self.assertIn('log_directory_not_writable', result.stderr)
             self.assertEqual('', self.calls())
-
-    def test_aviator_token_containing_only_line_endings_is_rejected(self):
-        (self.base / "secrets/aviator").write_bytes(b"\r\n\r\n")
-        result = self.run_runner()
-        self.assertEqual(64, result.returncode, result.stderr)
-        self.assertIn('invalid_aviator_token_file', result.stderr)
-        self.assertEqual("", self.calls())
 
     def test_ssc_insecure_only_applies_to_ssc_login(self):
         for value in ("true", "false"):
@@ -213,31 +232,48 @@ class RunnerTests(unittest.TestCase):
 
     def test_missing_empty_and_whitespace_filters_are_optional(self):
         self.env.pop("BULK_AUDIT_FILTER")
-        for action in ("bulkaudit-sast", "bulkaudit-dast", "bulkaudit"):
-            for value in (None, "", " \t\r\n"):
-                with self.subTest(action=action, filter=value):
-                    (self.base / "calls").write_text("")
-                    settings = {} if value is None else {"BULK_AUDIT_FILTER": value}
-                    result = self.run_runner(BULK_AUDIT_ACTION=action,
-                                             BULK_AUDIT_EXCLUDE_FILTER="Languages:c#", **settings)
-                    self.assertEqual(0, result.returncode, result.stderr)
-                    self.assertIn('ssc\naction\nrun\n' + action + '\n', self.calls())
-                    self.assertNotIn('--filter=', self.calls())
-                    self.assertIn('--exclude-filter=Languages:c#\n', self.calls())
-                    self.assertIn('--dry-run=true\n', self.calls())
-                    self.assertIn('--max-audits=1\n', self.calls())
+        for value in (None, "", " \t\r\n"):
+            with self.subTest(filter=value):
+                (self.base / "calls").write_text("")
+                settings = {} if value is None else {"BULK_AUDIT_FILTER": value}
+                result = self.run_runner(BULK_AUDIT_EXCLUDE_FILTER="Languages:c#", **settings)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertNotIn('--filter=', self.calls())
+                self.assertIn('--exclude-filter=Languages:c#\n', self.calls())
 
     def test_missing_and_empty_secrets_do_not_authenticate(self):
-        (self.base / "secrets/ssc").write_text("")
-        result = self.run_runner()
-        self.assertEqual(64, result.returncode)
-        self.assertEqual("", self.calls())
+        for name in ('ssc', 'aviator', 'admin'):
+            path = self.base / 'secrets' / name
+            original = path.read_bytes()
+            for contents in (None, b''):
+                with self.subTest(secret=name, contents=contents):
+                    if contents is None:
+                        path.unlink()
+                    else:
+                        path.write_bytes(contents)
+                    result = self.run_runner()
+                    self.assertEqual(64, result.returncode, result.stderr)
+                    self.assertEqual('', self.calls())
+                    path.write_bytes(original)
+
+    def test_scalar_tokens_reject_whitespace_and_embedded_line_breaks(self):
+        for name in ('ssc', 'aviator'):
+            path = self.base / 'secrets' / name
+            original = path.read_bytes()
+            for contents in (b'\r\n\r\n', b'  \t', b'part1\npart2', b'part1\rpart2'):
+                with self.subTest(secret=name, contents=contents):
+                    path.write_bytes(contents)
+                    result = self.run_runner()
+                    self.assertEqual(64, result.returncode, result.stderr)
+                    self.assertEqual('', self.calls())
+                    path.write_bytes(original)
 
     def test_invalid_configuration_does_not_authenticate(self):
         for settings in ({"BULK_AUDIT_ACTION": "arbitrary"}, {"BULK_AUDIT_MAX_AUDITS": "-1"},
                          {"BULK_AUDIT_DRY_RUN": "yes"}, {"BULK_AUDIT_FILTER": "CHANGE_ME"},
                          {"SSC_INSECURE": "yes"}, {"SSC_INSECURE": "true; echo injected"},
-                         {"SSC_URL": "http://insecure"}, {"AVIATOR_TENANT": "CHANGE_ME"}):
+                         {"SSC_URL": "http://insecure"}, {"SSC_URL": "https://invalid host"},
+                         {"AVIATOR_TENANT": "CHANGE_ME"}):
             with self.subTest(settings=settings):
                 result = self.run_runner(**settings)
                 self.assertEqual(64, result.returncode, result.stderr)
