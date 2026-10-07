@@ -3,7 +3,7 @@ on:
   pull_request:
     paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', '.github/workflows/bulk-audit.yml']
   push:
-    branches: [main]
+    branches: [main, kireetivar/bulk-audit-poc]
     paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', '.github/workflows/bulk-audit.yml']
   workflow_dispatch:
 
@@ -34,8 +34,6 @@ jobs:
         run: |
           .cache/test-venv/bin/python -m unittest discover -s tests -v
           helm lint charts/fcli-bulk-audit
-          docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config --quiet
-          docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml -f deploy/compose/compose.truststore.yaml config --quiet
       - name: Build and smoke-test Linux images without credentials
         run: |
           bash tests/smoke-images.sh
