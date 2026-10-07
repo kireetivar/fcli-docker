@@ -87,6 +87,8 @@ secrets/aviator-private-key   Complete PEM private key, preserving its line brea
 
 Do not add quotation marks around tokens. Never paste secret values into shell commands, `.env`, Helm values, or committed files. These local directories and `.env` are ignored by Git and excluded from the Docker build context.
 
+Token files may end with LF or Windows CRLF. The runner removes CR/LF from a private copy of the Aviator user token before passing it to fcli's `file:` login, so manual file rewriting is unnecessary. The mounted credential files stay unchanged, the temporary token copy is deleted on exit, and the PEM private key retains its line breaks.
+
 Protect the directory with your Windows account's ACLs. On a conventional rootful Linux Docker host, one approach is a private parent directory and secret files readable by container group 10001:
 
 ```bash

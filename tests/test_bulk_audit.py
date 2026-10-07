@@ -45,8 +45,8 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'aviator session login' ]]; then
         [[ $arg == file:* ]] && token_file=${arg#file:}
     done
     [[ -n $token_file && -f $token_file ]] || exit 97
-    token_bytes=$(<"$token_file")
-    [[ $token_bytes == AVIATOR_SENTINEL ]] || exit 96
+    # Command substitution would hide trailing LF and miss the original bug.
+    printf '%s' AVIATOR_SENTINEL | cmp -s - "$token_file" || exit 96
 fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action run' ]]; then
     printf 'mock file diagnostic\n' >> "$FCLI_DEFAULT_LOG_FILE"
@@ -125,6 +125,28 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('mock file diagnostic', result.stderr)
         self.assertIn('process_exit_does_not_guarantee_all_audits_succeeded', result.stderr)
         self.assertNotIn('\n-k\n', self.calls())
+
+    def test_aviator_token_normalizes_lf_and_crlf_without_changing_sources(self):
+        token = self.base / "secrets/aviator"
+        admin = self.base / "secrets/admin"
+        original_admin = admin.read_bytes()
+        for contents in (b"AVIATOR_SENTINEL", b"AVIATOR_SENTINEL\n",
+                         b"AVIATOR_SENTINEL\r\n", b"AVIATOR_SENTINEL\r\n\r\n"):
+            with self.subTest(contents=contents):
+                (self.base / "calls").write_text("")
+                token.write_bytes(contents)
+                result = self.run_runner()
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(contents, token.read_bytes())
+                self.assertEqual(original_admin, admin.read_bytes())
+                self.assertIn('file:' + shell_path(admin) + '\n', self.calls())
+
+    def test_aviator_token_containing_only_line_endings_is_rejected(self):
+        (self.base / "secrets/aviator").write_bytes(b"\r\n\r\n")
+        result = self.run_runner()
+        self.assertEqual(64, result.returncode, result.stderr)
+        self.assertIn('invalid_aviator_token_file', result.stderr)
+        self.assertEqual("", self.calls())
 
     def test_ssc_insecure_only_applies_to_ssc_login(self):
         for value in ("true", "false"):
