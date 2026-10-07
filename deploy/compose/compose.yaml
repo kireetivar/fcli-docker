@@ -18,6 +18,8 @@ services:
     cpus: 2.0
     mem_limit: 4g
     pids_limit: 256
+    volumes:
+      - audit-logs:/logs
     tmpfs:
       - /work:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700
       - /tmp:rw,nosuid,nodev,size=1g,uid=10001,gid=10001,mode=0700
@@ -44,6 +46,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  audit-logs:
 
 secrets:
   ssc-token:

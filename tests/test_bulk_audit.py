@@ -32,13 +32,17 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action help' ]]; then
     echo '--dry-run --max-audits --filter --add-aviator-tags'
     exit 0
 fi
+printf '10:11:38.600 [main] INFO FCLI -- mock %s diagnostic\n' "${1:-}" > "$FCLI_DEFAULT_LOG_FILE"
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc session login' ]]; then
     [[ ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} == 'SSC_SENTINEL' ]] || exit 91
     echo 'ssc session login output'
 elif [[ -n ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} ]]; then
     exit 92
 fi
-if [[ "${1:-} ${2:-} ${3:-}" == "${MOCK_FAIL_COMMAND:-none}" ]]; then exit 23; fi
+if [[ "${1:-} ${2:-} ${3:-}" == "${MOCK_FAIL_COMMAND:-none}" ]]; then
+    echo 'mock login failure detail' >&2
+    exit 23
+fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'aviator session login' ]]; then
     token_file=
     for arg in "$@"; do
@@ -57,7 +61,7 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action run' ]]; then
         touch "$READY"
         while true; do sleep 0.1; done
     fi
-    echo 'mock audit output'
+    echo '[INFO] mock audit output'
     exit "${MOCK_AUDIT_EXIT:-0}"
 fi
 echo 'aviator admin output'
@@ -69,7 +73,7 @@ class RunnerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="bulk-audit-test-")
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
-        for folder in ("bin", "work", "tmp", "secrets"):
+        for folder in ("bin", "work", "tmp", "secrets", "logs"):
             (self.base / folder).mkdir()
         stub = self.base / "bin/fcli"
         stub.write_text(STUB, newline="\n")
@@ -82,6 +86,7 @@ class RunnerTests(unittest.TestCase):
             "SSC_URL": "https://ssc.example.test/ssc", "AVIATOR_URL": "https://aviator.example.test",
             "AVIATOR_TENANT": "test", "BULK_AUDIT_FILTER": 'Application:"test app"',
             "BULK_AUDIT_WORK_ROOT": shell_path(self.base / "work"),
+            "BULK_AUDIT_LOG_DIR": shell_path(self.base / "logs"),
             "TMPDIR": shell_path(self.base / "tmp"), "BULK_AUDIT_TIMEOUT_SECONDS": "20",
             "RECORDER": shell_path(self.base / "calls"), "STATE_RECORD": shell_path(self.base / "state"),
             "TERMINATED": shell_path(self.base / "terminated"), "READY": shell_path(self.base / "ready"),
@@ -126,7 +131,15 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('aviator session login output', result.stdout)
         self.assertIn('aviator admin output', result.stdout)
         self.assertIn('mock audit output', result.stdout)
-        self.assertIn('mock file diagnostic', result.stderr)
+        self.assertNotIn('mock file diagnostic', result.stdout + result.stderr)
+        self.assertNotIn('INFO FCLI', result.stdout + result.stderr)
+        run_dirs = list((self.base / "logs").iterdir())
+        self.assertEqual(1, len(run_dirs))
+        self.assertEqual({'ssc_login.log', 'aviator_login.log', 'aviator_admin.log', 'audit.log'},
+                         {path.name for path in run_dirs[0].iterdir()})
+        self.assertIn('mock file diagnostic', (run_dirs[0] / 'audit.log').read_text())
+        self.assertIn('mock ssc diagnostic', (run_dirs[0] / 'ssc_login.log').read_text())
+        self.assertIn(shell_path(run_dirs[0]), result.stderr)
         self.assertIn('process_exit_does_not_guarantee_all_audits_succeeded', result.stderr)
         self.assertNotIn('\n-k\n', self.calls())
 
@@ -144,6 +157,22 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(contents, token.read_bytes())
                 self.assertEqual(original_admin, admin.read_bytes())
                 self.assertIn('file:' + shell_path(admin) + '\n', self.calls())
+
+    def test_logs_are_retained_separately_across_runs(self):
+        for _ in range(2):
+            result = self.run_runner()
+            self.assertEqual(0, result.returncode, result.stderr)
+        run_dirs = list((self.base / "logs").iterdir())
+        self.assertEqual(2, len(run_dirs))
+        for directory in run_dirs:
+            self.assertEqual(1, (directory / 'audit.log').read_text().count('mock file diagnostic'))
+
+    def test_invalid_log_directory_does_not_authenticate(self):
+        for directory in ('relative/path', shell_path(self.base / 'missing')):
+            result = self.run_runner(BULK_AUDIT_LOG_DIR=directory)
+            self.assertEqual(64, result.returncode, result.stderr)
+            self.assertIn('log_directory_not_writable', result.stderr)
+            self.assertEqual('', self.calls())
 
     def test_aviator_token_containing_only_line_endings_is_rejected(self):
         (self.base / "secrets/aviator").write_bytes(b"\r\n\r\n")
@@ -220,7 +249,9 @@ class RunnerTests(unittest.TestCase):
                 (self.base / "calls").write_text("")
                 result = self.run_runner(MOCK_FAIL_COMMAND=command)
                 self.assertEqual(23, result.returncode, result.stderr)
+                self.assertIn('mock login failure detail', result.stderr)
                 self.assertNotIn('ssc\naction\nrun\n', self.calls())
+                self.assertTrue(any((self.base / 'logs').glob('*/*.log')))
 
     def test_audit_exit_code_is_preserved_without_retry(self):
         result = self.run_runner(MOCK_AUDIT_EXIT="17")
@@ -241,6 +272,7 @@ class RunnerTests(unittest.TestCase):
         result = self.run_runner(MOCK_WAIT="true", BULK_AUDIT_TIMEOUT_SECONDS="2")
         self.assertEqual(124, result.returncode, result.stderr)
         self.assertTrue((self.base / "terminated").exists(), result.stderr)
+        self.assertTrue(any((self.base / 'logs').glob('*/audit.log')))
 
     @unittest.skipIf(os.name == "nt", "POSIX signal delivery is verified on Linux CI")
     def test_sigterm_is_forwarded(self):

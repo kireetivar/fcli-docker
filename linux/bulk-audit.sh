@@ -28,7 +28,6 @@ fi
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 phase=validation
 child_pid=
-log_pid=
 state_dir=
 scratch_dir=
 action=${BULK_AUDIT_ACTION:-bulkaudit-sast}
@@ -45,10 +44,6 @@ fail() { event configuration_error "$1"; exit 64; }
 finish() {
     local rc=$?
     trap - EXIT
-    if [[ -n $log_pid ]]; then
-        kill "$log_pid" 2>/dev/null || true
-        wait "$log_pid" 2>/dev/null || true
-    fi
     # Both directories are private mktemp allocations, never configuration paths.
     [[ -z $scratch_dir ]] || rm -rf -- "$scratch_dir" || true
     [[ -z $state_dir ]] || rm -rf -- "$state_dir" || true
@@ -63,7 +58,6 @@ stop() {
         kill -TERM "$child_pid" 2>/dev/null || true
         wait "$child_pid" 2>/dev/null || true
     fi
-    if [[ -n $log_pid ]]; then wait "$log_pid" 2>/dev/null || true; log_pid=; fi
     event interrupted
     exit "$code"
 }
@@ -156,63 +150,52 @@ if [[ -n ${FCLI_TRUSTSTORE_PWD_FILE:-} ]]; then
 fi
 
 run_cli() {
-    local quiet=$1 rc=0 log_rc=0
-    shift
+    local rc=0
+    # fcli truncates --log-file on each invocation. Keep one file per phase.
+    export FCLI_DEFAULT_LOG_FILE="$log_dir/$phase.log"
+    : > "$FCLI_DEFAULT_LOG_FILE" || { event log_file_failed; exit 74; }
     event phase_started
     if [[ $phase == ssc_login ]]; then
         # The secret is an environment value only in this child, never an argv value.
-        if [[ $quiet == true ]]; then
-            (export FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN="$ssc_token"; exec fcli "$@") >/dev/null 2>&1 &
-        else
-            (export FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN="$ssc_token"; exec fcli "$@") &
-        fi
-    elif [[ $quiet == true ]]; then
-        fcli "$@" >/dev/null 2>&1 &
+        (export FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN="$ssc_token"; exec fcli "$@") &
     else
         fcli "$@" &
     fi
     child_pid=$!
-    if [[ $quiet == false ]]; then
-        # fcli's nested audit commands also write INFO diagnostics to a file.
-        # Stream that file and drain it after the writer exits, retaining fcli's status.
-        tail --pid="$child_pid" --sleep-interval=0.2 -n +1 -f "$FCLI_DEFAULT_LOG_FILE" >&2 &
-        log_pid=$!
-    fi
     wait "$child_pid" || rc=$?
     child_pid=
-    if [[ -n $log_pid ]]; then
-        wait "$log_pid" || log_rc=$?
-        log_pid=
-    fi
     if (( rc != 0 )); then
         event command_failed "exit_code=$rc"
         exit "$rc"
     fi
-    if (( log_rc != 0 )); then event log_stream_failed; exit 74; fi
     event phase_completed
 }
 
+# Retain diagnostics outside the disposable credential/session directories.
+# A random suffix also prevents collisions between containers sharing a volume.
+log_root=${BULK_AUDIT_LOG_DIR:-/logs}
+[[ $log_root == /* && -d $log_root && -w $log_root ]] || fail log_directory_not_writable
+log_dir=$(mktemp -d "$log_root/$run_id.XXXXXXXX") || { event log_file_failed; exit 74; }
 event started "action=$action dry_run=$dry_run max_audits=$max_audits ssc_insecure=$ssc_insecure"
-# Mask file diagnostics before the first login. Login commands are streamed so a
-# failed session shows the same fcli output as the audit phase.
-export FCLI_DEFAULT_LOG_FILE="$scratch_dir/fcli.log"
+printf 'fcli diagnostic logs: %s\n' "$log_dir" >&2
+# fcli's console appender shows WARN/ERROR, while INFO diagnostics stay in files.
+# Keep direct command output visible, including login failures and audit progress.
 export FCLI_DEFAULT_LOG_LEVEL=INFO
 export FCLI_DEFAULT_LOG_MASK=high
-touch "$FCLI_DEFAULT_LOG_FILE"
 phase=ssc_login
 ssc_login_args=(ssc session login --url "$SSC_URL" --disable sc-sast,sc-dast)
 if [[ $ssc_insecure == true ]]; then ssc_login_args+=(-k); fi
-run_cli false "${ssc_login_args[@]}"
+run_cli "${ssc_login_args[@]}"
 unset ssc_token
 phase=aviator_login
-run_cli false aviator session login --url "$AVIATOR_URL" --token "file:$aviator_token_file"
+run_cli aviator session login --url "$AVIATOR_URL" --token "file:$aviator_token_file"
 phase=aviator_admin
-run_cli false aviator admin-config create --url "$AVIATOR_URL" --tenant "$AVIATOR_TENANT" --private-key "file:$admin_file"
+run_cli aviator admin-config create --url "$AVIATOR_URL" --tenant "$AVIATOR_TENANT" --private-key "file:$admin_file"
 phase=audit
 args=(ssc action run "$action" "--dry-run=$dry_run" "--max-audits=$max_audits" --progress=simple)
 # Omit blank filters so fcli uses its default of no inclusion filtering.
 if [[ -n ${filter//[[:space:]]/} ]]; then args+=("--filter=$filter"); fi
 if [[ $action != bulkaudit-dast ]]; then args+=(--add-aviator-tags); fi
 if [[ -n ${BULK_AUDIT_EXCLUDE_FILTER:-} ]]; then args+=("--exclude-filter=$BULK_AUDIT_EXCLUDE_FILTER"); fi
-run_cli false "${args[@]}"
+run_cli "${args[@]}"
 event result_notice process_exit_does_not_guarantee_all_audits_succeeded

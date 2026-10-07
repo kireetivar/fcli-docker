@@ -92,6 +92,8 @@ template:
           - name: credentials
             mountPath: /run/secrets
             readOnly: true
+          - name: audit-logs
+            mountPath: /logs
           {{- if .Values.truststore.existingSecret }}
           - name: truststore
             mountPath: /run/truststore
@@ -117,6 +119,14 @@ template:
               path: aviator-token
             - key: aviator-private-key
               path: aviator-private-key
+      - name: audit-logs
+        {{- if .Values.storage.existingLogClaim }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.storage.existingLogClaim | quote }}
+        {{- else }}
+        emptyDir:
+          sizeLimit: {{ .Values.storage.logSizeLimit }}
+        {{- end }}
       {{- if .Values.truststore.existingSecret }}
       - name: truststore
         secret:

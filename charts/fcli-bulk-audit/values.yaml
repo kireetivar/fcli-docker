@@ -53,6 +53,9 @@ resources:
 storage:
   sessionSizeLimit: 64Mi
   temporarySizeLimit: 1Gi
+  logSizeLimit: 128Mi
+  # Empty uses a Pod-local emptyDir; set a PVC name to retain logs after Pod deletion.
+  existingLogClaim: ""
 podAnnotations: {}
 nodeSelector:
   kubernetes.io/arch: amd64

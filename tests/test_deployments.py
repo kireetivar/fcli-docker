@@ -41,6 +41,14 @@ class HelmTests(unittest.TestCase):
         self.assertNotIn("SSC_TOKEN", env)
         self.assertEqual("Memory", pod["volumes"][0]["emptyDir"]["medium"])
         self.assertEqual(0o440, pod["volumes"][2]["secret"]["defaultMode"])
+        self.assertEqual('128Mi', pod['volumes'][3]['emptyDir']['sizeLimit'])
+        self.assertIn({'name': 'audit-logs', 'mountPath': '/logs'}, container['volumeMounts'])
+
+    def test_persistent_diagnostic_logs(self):
+        doc = self.render('--set', 'storage.existingLogClaim=audit-history')
+        volume = doc['spec']['template']['spec']['volumes'][3]
+        self.assertEqual({'claimName': 'audit-history'}, volume['persistentVolumeClaim'])
+        self.assertNotIn('emptyDir', volume)
 
     def test_cronjob_is_suspended_and_forbids_overlap(self):
         doc = self.render("--set", "schedule.enabled=true")
@@ -124,6 +132,8 @@ class ComposeTests(unittest.TestCase):
         self.assertNotIn("SSC_TOKEN", service["environment"])
         self.assertTrue(all("size=" in mount for mount in service["tmpfs"]))
         self.assertEqual("local", service["logging"]["driver"])
+        self.assertEqual(['audit-logs:/logs'], service['volumes'])
+        self.assertIn('audit-logs', doc['volumes'])
 
 
 if __name__ == "__main__":

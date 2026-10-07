@@ -19,7 +19,7 @@ Supported actions will be:
 - Perform local validation without live credentials, and provide a repeatable live-test procedure for the other PC. Local checks alone do not establish that a real audit succeeds.
 - Document that a successful fcli process exit does not currently guarantee that all individual audits succeeded.
 
-Use this Windows PC for offline development/validation, and a connected PC for live testing. Use the latest compatible Aviator build, allow SAST tag preparation, and preview the selected application before at most one live audit. The implementation uses mounted secret files and console/file-diagnostic streaming. Customers must supply their endpoints on the connected PC. The application filter is optional; leaving it empty considers all eligible versions within the audit limit. Cloud integrations remain outside the first milestone.
+Use this Windows PC for offline development/validation, and a connected PC for live testing. Use the latest compatible Aviator build, allow SAST tag preparation, and preview the selected application before at most one live audit. The implementation uses mounted secret files, visible command output, and separate diagnostic files. Customers must supply their endpoints on the connected PC. The application filter is optional; leaving it empty considers all eligible versions within the audit limit. Cloud integrations remain outside the first milestone.
 
 ## 1. Why Docker Compose and Helm?
 
@@ -176,7 +176,7 @@ For Docker `awslogs`, AWS credentials belong to the Docker daemon's execution en
 
 For Kubernetes, provide an example using the customer's existing collector rather than installing a cluster-wide logging stack with the application chart. AWS documents [Fluent Bit forwarding to CloudWatch](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Container-Insights-setup-logs-FluentBit.html).
 
-Runner events should contain a run identifier, action, phase, duration, and exit status. Preserve fcli diagnostics without claiming that all existing fcli output is structured JSON. Avoid logging authentication output, request bodies, or sensitive audit payloads; verify this with sentinel credentials in automated tests.
+Runner events should contain a run identifier, action, phase, duration, and exit status. Preserve fcli diagnostics without claiming that all existing fcli output is structured JSON. The POC shows command output, including authentication failure details, while masked INFO diagnostics stay in phase files under `/logs`; it does not mirror those files into the console. Compose retains them in a named volume; Helm uses Pod-local storage or an existing PVC. Collect file diagnostics separately from stdout/stderr, configure retention, and verify credential isolation with sentinel tests. See the POC runbook for retrieval commands and storage lifetimes.
 
 Monitoring should detect failed runs, missed executions, timeouts, authentication problems, and quota exhaustion. Log delivery needs separate monitoring: a successful audit does not prove that CloudWatch received its logs. Configure collector buffering, retention, and outage behavior explicitly for each deployment.
 

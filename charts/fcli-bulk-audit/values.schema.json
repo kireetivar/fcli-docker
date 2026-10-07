@@ -237,6 +237,13 @@
         "temporarySizeLimit": {
           "type": "string",
           "minLength": 1
+        },
+        "logSizeLimit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "existingLogClaim": {
+          "type": "string"
         }
       },
       "required": [

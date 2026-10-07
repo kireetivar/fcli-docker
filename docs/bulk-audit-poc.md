@@ -8,7 +8,7 @@ For the architectural comparison and proposed future fcli changes, see [deployme
 
 | Location | Purpose |
 | --- | --- |
-| `linux/bulk-audit.sh` | Validate configuration, authenticate, execute, stream logs, and clean up |
+| `linux/bulk-audit.sh` | Validate configuration, authenticate, execute, retain diagnostics, and clean up sessions |
 | `linux/Dockerfile`, target `fcli-bulk-audit` | Dedicated runner image using the existing verified downloader and UBI9 base |
 | `deploy/compose/compose.yaml` | Manual Docker execution with secret files and bounded temporary storage |
 | `deploy/compose/compose.truststore.yaml` | Optional private CA/truststore configuration |
@@ -232,6 +232,21 @@ A Job's Pod template is immutable. To repeat a one-shot test with changed config
 
 For an optional truststore, create another Secret with keys `truststore.jks` and `password`, then set `truststore.existingSecret` to its name.
 
+### Rancher Desktop on Windows with WSL
+
+In Rancher Desktop, enable Kubernetes, select the Moby/dockerd container engine for the Docker Compose workflow, and enable integration with your WSL distribution. From WSL, select the cluster and check the tools:
+
+```bash
+kubectl config use-context rancher-desktop
+kubectl get nodes
+docker version
+helm version
+```
+
+Build with `docker compose build bulk-audit` from `deploy/compose`, using Rancher Desktop's Docker engine. With Moby, this local image can be used by Rancher Desktop Kubernetes. Set the chart image repository/tag to the actual Compose image (default `fcli-bulk-audit:poc-20261005`) and `image.pullPolicy: Never` for this local test. If using containerd instead, load/build the image with `nerdctl --namespace k8s.io`; its default namespace is not visible to Kubernetes. See [Rancher Desktop's image workflow](https://docs.rancherdesktop.io/tutorials/working-with-images/).
+
+Use the namespace, file-based Secret, and Helm commands above. In `values.local.yaml`, copy your SSC URL, Aviator URL, and tenant from `.env`, set `audit.sscInsecure: true` if your SSC test endpoint requires the same `-k` mode, and keep `audit.dryRun: true` and `audit.maxAudits: 1`. `audit.filter: ""` works without an inclusion filter. Endpoints must resolve and be reachable from the Kubernetes Pod, including any VPN or private hostname requirements.
+
 ### Scheduling after the POC
 
 After successful manual testing, install the chart with `schedule.enabled: true`, configure the schedule/timezone, and leave `schedule.suspend: true` while reviewing the rendered configuration. Enable execution by setting `schedule.suspend: false` when ready. Change `audit.dryRun` only after reviewing the same application scope.
@@ -240,7 +255,16 @@ The CronJob uses `Forbid` and zero Job retries. This prevents normal overlap wit
 
 ## Logs, credentials, and shutdown behavior
 
-- Runner lifecycle events are JSON on stderr; fcli console output and masked file diagnostics are also streamed. The combined stream is not exclusively JSON. Authentication command output is suppressed; a login failure reports its phase and exit code without echoing credentials or server error bodies.
+- Runner lifecycle events are JSON on stderr; direct fcli command output is visible, including login failures, audit progress, and action summaries. The combined stream is not exclusively JSON. Java INFO diagnostics stay in masked log files and are never mirrored with `tail`. Action messages such as `[INFO] Dry-run complete` remain normal console output.
+- Each invocation creates a private run directory under `/logs` (override with `BULK_AUDIT_LOG_DIR` for a standalone runner). It prints that directory and writes `ssc_login.log`, `aviator_login.log`, `aviator_admin.log`, and `audit.log` as those phases start. fcli truncates its log file at startup, so separate phase files preserve earlier login diagnostics. These files survive session/credential cleanup, including command failures and handled cancellation.
+- Compose mounts a named `audit-logs` volume at `/logs`, initialized for the image's non-root user. It survives container recreation and ordinary `docker compose down`. No extra `.env` setting or writable host bind mount is required. Files accumulate until you archive/remove them; `docker compose down --volumes` deletes the volume. To copy diagnostics after a run (including a stopped container), run:
+
+  ```bash
+  mkdir -p logs/fcli
+  docker compose cp bulk-audit:/logs/. logs/fcli/
+  ```
+
+- Helm mounts `/logs` in a disk-backed `emptyDir`, bounded by `storage.logSizeLimit` (default `128Mi`). Those files are deleted with the Pod, so a collector must read them while the Pod runs. Set `storage.existingLogClaim` to an existing PVC to retain them after Pod deletion, and retrieve/archive them through a container mounting that claim. Configure PVC access modes and capacity for your scheduling needs; the chart does not create the claim or rotate files.
 - Docker keeps bounded local logs (three 10 MB files). Save relevant logs before recreating/removing containers. Kubernetes logs can be collected by an existing Fluent Bit or other platform collector. CloudWatch setup is not bundled in this POC.
 - Diagnostic masking uses fcli's `high` setting and is best effort. Treat logs as sensitive application data and review before sharing them.
 - Sessions and downloaded temporary data use private directories in bounded memory-backed volumes. They are cleaned up after ordinary completion or cancellation; ephemeral mounts also limit persistence when the process is killed abruptly. The original mounted credential files remain on the host or in Kubernetes Secrets until their owner rotates/removes them.
@@ -253,7 +277,7 @@ The CronJob uses `Forbid` and zero Job retries. This prevents normal overlap wit
 | `0` | fcli process completed; inspect individual audit results |
 | `64` | Runner configuration or secret-file validation failed |
 | `69` | Packaged fcli action interface is incompatible (`--check-image`) |
-| `74` | File-log streaming failed after the command completed |
+| `74` | Runner could not create the diagnostic run directory or phase file |
 | `124` | Overall execution deadline expired |
 | `130` / `143` | Interrupted/terminated where the runner handled the signal |
 | `137` | Forced termination or OOM; inspect Docker/Kubernetes state |

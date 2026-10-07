@@ -38,3 +38,14 @@ docker run "${flags[@]}" fcli-test:fcli-bulk-audit --check-image
 code=0
 docker run "${flags[@]}" fcli-test:fcli-bulk-audit || code=$?
 [[ $code == 64 ]] || { echo "Expected missing-configuration exit 64, got $code" >&2; exit 1; }
+
+# Docker must initialize log-volume ownership for the non-root, read-only image.
+# A second container demonstrates retention across container recreation.
+(
+    log_volume=$(docker volume create)
+    trap 'docker volume rm "$log_volume" >/dev/null' EXIT
+    docker run "${flags[@]}" -v "$log_volume:/logs" --entrypoint /bin/bash fcli-test:fcli-bulk-audit \
+        -c 'test -w /logs && umask 077 && printf "%s\n" retained-diagnostic > /logs/smoke.log'
+    docker run "${flags[@]}" -v "$log_volume:/logs" --entrypoint /bin/bash fcli-test:fcli-bulk-audit \
+        -c 'test "$(cat /logs/smoke.log)" = retained-diagnostic'
+)

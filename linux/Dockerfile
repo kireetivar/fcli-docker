@@ -232,7 +232,7 @@ USER root
 COPY bulk-audit.sh /usr/local/bin/fcli-bulk-audit
 RUN sed -i 's/\r$//' /usr/local/bin/fcli-bulk-audit && \
     chmod 0755 /usr/local/bin/fcli-bulk-audit && \
-    mkdir -p /work && chown 10001:10001 /work
+    mkdir -p /work /logs && chown 10001:10001 /work /logs && chmod 0700 /logs
 USER fcli
 # Verify packaged action interfaces without authenticating or contacting SSC.
 RUN /usr/local/bin/fcli-bulk-audit --check-image
