@@ -135,6 +135,17 @@ done
 ssc_token=$(<"$ssc_file")
 ssc_token=${ssc_token%$'\r'}
 [[ -n ${ssc_token//[[:space:]]/} && $ssc_token != *$'\n'* && $ssc_token != *$'\r'* ]] || fail invalid_ssc_token_file
+# TODO(upstream): remove this copy once fcli strips Aviator user tokens.
+# TextSources.resolveFile in CommonOptionMixins returns Files.readString unchanged,
+# so file: submits a trailing CR/LF from nano, Compose, or kubectl --from-file.
+# Strip in AviatorUserTokenTextResolver.resolveRequired (StringUtils.strip), not in
+# resolveFile: that reader is also used for PEM keys. /run/secrets is read-only,
+# so the trimmed bytes live only in this private scratch file and are deleted on exit.
+# Do not strip admin_file; a PEM needs its line breaks.
+aviator_token_file=$scratch_dir/aviator-token
+tr -d '\r\n' < "$aviator_file" > "$aviator_token_file"
+chmod 600 "$aviator_token_file"
+[[ -s $aviator_token_file ]] || fail invalid_aviator_token_file
 if [[ -n ${FCLI_TRUSTSTORE:-} ]]; then
     [[ -r $FCLI_TRUSTSTORE && -s $FCLI_TRUSTSTORE ]] || fail unreadable_truststore
 fi
@@ -184,7 +195,7 @@ if [[ $ssc_insecure == true ]]; then ssc_login_args+=(-k); fi
 run_cli true "${ssc_login_args[@]}"
 unset ssc_token
 phase=aviator_login
-run_cli true aviator session login --url "$AVIATOR_URL" --token "file:$aviator_file"
+run_cli true aviator session login --url "$AVIATOR_URL" --token "file:$aviator_token_file"
 phase=aviator_admin
 run_cli true aviator admin-config create --url "$AVIATOR_URL" --tenant "$AVIATOR_TENANT" --private-key "file:$admin_file"
 phase=audit
