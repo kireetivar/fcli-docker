@@ -22,6 +22,10 @@ STUB = r'''#!/usr/bin/env bash
 set -eu
 printf '===CALL===\n' >> "$RECORDER"
 printf '%s\n' "$@" >> "$RECORDER"
+for name in FCLI_DATA_DIR FCLI_CONFIG_DIR FCLI_STATE_DIR FORTIFY_DATA_DIR FCLI_HOME; do
+    [[ ! -v $name ]] || exit 93
+done
+[[ -d $FCLI_USER_HOME && $FCLI_USER_HOME == "$BULK_AUDIT_WORK_ROOT"/session.*/home ]] || exit 94
 if [[ ${1:-} == --version ]]; then echo 'fcli test double'; exit 0; fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action help' ]]; then
     [[ ${MOCK_INCOMPATIBLE:-false} != true ]] || exit 2
@@ -37,8 +41,7 @@ fi
 if [[ "${1:-} ${2:-} ${3:-}" == "${MOCK_FAIL_COMMAND:-none}" ]]; then exit 23; fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action run' ]]; then
     printf 'mock file diagnostic\n' >> "$FCLI_DEFAULT_LOG_FILE"
-    printf '%s\n' "$FCLI_STATE_DIR" > "$STATE_RECORD"
-    [[ $FCLI_STATE_DIR != *inherited* ]] || exit 93
+    printf '%s\n' "$FCLI_USER_HOME" > "$STATE_RECORD"
     if [[ ${MOCK_WAIT:-false} == true ]]; then
         trap 'echo terminated > "$TERMINATED"; exit 143' TERM INT
         touch "$READY"
@@ -72,7 +75,9 @@ class RunnerTests(unittest.TestCase):
             "TMPDIR": shell_path(self.base / "tmp"), "BULK_AUDIT_TIMEOUT_SECONDS": "20",
             "RECORDER": shell_path(self.base / "calls"), "STATE_RECORD": shell_path(self.base / "state"),
             "TERMINATED": shell_path(self.base / "terminated"), "READY": shell_path(self.base / "ready"),
-            "FCLI_STATE_DIR": "/inherited", "FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN": "inherited",
+            "FCLI_STATE_DIR": "/inherited", "FCLI_CONFIG_DIR": "/inherited",
+            "FCLI_DATA_DIR": "/inherited", "FORTIFY_DATA_DIR": "/inherited", "FCLI_HOME": "/inherited",
+            "FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN": "inherited",
         })
         for name, filename, value in (
             ("SSC_TOKEN_FILE", "ssc", "SSC_SENTINEL\r\n"),

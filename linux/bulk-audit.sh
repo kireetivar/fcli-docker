@@ -81,12 +81,11 @@ work_root=${BULK_AUDIT_WORK_ROOT:-/work}
 state_dir=$(mktemp -d "$work_root/session.XXXXXXXX")
 scratch_dir=$(mktemp -d "${TMPDIR:-/tmp}/bulkaudit.XXXXXXXX")
 export FCLI_USER_HOME="$state_dir/home"
-export FCLI_DATA_DIR="$state_dir/data"
-export FCLI_CONFIG_DIR="$state_dir/config"
-export FCLI_STATE_DIR="$state_dir/state"
-export FORTIFY_DATA_DIR="$state_dir/fortify"
+# Let fcli derive its directory layout from the private home. Independent
+# directory overrides can violate its home-path validation.
+unset FCLI_DATA_DIR FCLI_CONFIG_DIR FCLI_STATE_DIR FORTIFY_DATA_DIR FCLI_HOME
 export TMPDIR="$scratch_dir"
-mkdir -p "$FCLI_USER_HOME" "$FCLI_CONFIG_DIR" "$FCLI_STATE_DIR"
+mkdir -p "$FCLI_USER_HOME"
 cd "$scratch_dir"
 
 check_image() {

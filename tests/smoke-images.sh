@@ -4,8 +4,8 @@ set -Eeuo pipefail
 # Prevent Git Bash from rewriting Linux container mount paths on Windows.
 export MSYS_NO_PATHCONV=1
 cd "$(dirname "$0")/.."
-version=${FCLI_VERSION:-dev_feat.v3.x.aviator.26.4}
-sha=${FCLI_SHA256:-46ff9d7f939d4ca39b114be85c4a82d9df2d54bc088c289271134f4a27a13bc0}
+version=${FCLI_VERSION:-v3.28.0}
+sha=${FCLI_SHA256:-f1c272513e24c204abd700037d373b831131520e805b2b8409025e619f8b04f6}
 for target in fcli-scratch fcli-ubi9 fcli-bulk-audit; do
     docker build --platform linux/amd64 --target "$target" \
         --build-arg "FCLI_VERSION=$version" --build-arg "FCLI_SHA256=$sha" \

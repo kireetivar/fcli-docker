@@ -17,17 +17,19 @@ For the architectural comparison and proposed future fcli changes, see [deployme
 
 ### fcli build selection
 
-On 2026-10-05, GitHub's live API reported stable **v3.27.0**, which contains only the older `bulkaudit` action. The most recent compatible Aviator build was **`dev_feat.v3.x.aviator.26.4`**, version **`0.20261005.110759-dev_feat.v3.x.aviator.26.4`**, published at **2026-10-05T11:46:30Z**.
-
-The Compose defaults pin its Linux archive SHA-256:
+The POC pins the stable **v3.28.0** release. Its Linux archive SHA-256 is:
 
 ```text
-46ff9d7f939d4ca39b114be85c4a82d9df2d54bc088c289271134f4a27a13bc0
+f1c272513e24c204abd700037d373b831131520e805b2b8409025e619f8b04f6
 ```
 
-The build verifies both this checksum and Fortify's RSA signature. It then checks the packaged action interfaces without authenticating. The build targets `linux/amd64`; native ARM support is not established by this POC.
+The build verifies both this checksum and Fortify's RSA signature, then checks the packaged action interfaces without authenticating. The build targets `linux/amd64`; native ARM support is not established by this POC.
 
-This is a **preview development build**, not a production support commitment. The development release tag moves: if its archive is replaced, a new build will fail the checksum check rather than silently changing fcli. Update both the tag/checksum deliberately and rerun the checks, or transfer an already-built image. Sources: [stable release](https://github.com/fortify/fcli/releases/tag/v3.27.0), [Aviator development release](https://github.com/fortify/fcli/releases/tag/dev_feat.v3.x.aviator.26.4).
+The runner creates a private `FCLI_USER_HOME` and clears inherited directory overrides so fcli can derive a consistent directory layout. This avoids startup failures caused by state paths outside fcli's home.
+
+When changing releases, update the version and checksum together and rerun compatibility checks. Source: [fcli v3.28.0](https://github.com/fortify/fcli/releases/tag/v3.28.0).
+
+If you already created `deploy/compose/.env`, pulling this branch does not update that ignored file. Set `FCLI_VERSION=v3.28.0` and `FCLI_SHA256=f1c272513e24c204abd700037d373b831131520e805b2b8409025e619f8b04f6` there, preserving your endpoints and other settings, before rebuilding with Compose.
 
 ## 1. Prepare the PC that can reach SSC and Aviator
 
@@ -100,15 +102,15 @@ docker compose run --rm --entrypoint /bin/bash bulk-audit -c 'for f in /run/secr
 
 A zero exit status means the files are readable and nonempty, not that the credentials are valid. The runner validates authentication during the actual run.
 
-If a rolling release checksum mismatch occurs, inspect the current official release metadata. In PowerShell:
+If a release checksum mismatch occurs, stop and inspect the official release metadata. In PowerShell:
 
 ```powershell
-$release = Invoke-RestMethod 'https://api.github.com/repos/fortify/fcli/releases/tags/dev_feat.v3.x.aviator.26.4'
+$release = Invoke-RestMethod 'https://api.github.com/repos/fortify/fcli/releases/tags/v3.28.0'
 $release | Select-Object tag_name, published_at
 $release.assets | Where-Object name -eq 'fcli-linux.tgz' | Select-Object name, digest
 ```
 
-Review the new build before updating `FCLI_SHA256` in `.env` to the digest without its `sha256:` prefix. Keep checksum verification enabled. Use `docker compose build --pull --no-cache bulk-audit` when refreshing a rolling build and rerun compatibility checks. Record the resulting image ID with `docker image inspect fcli-bulk-audit:poc-20261005 --format '{{.Id}}'` and use a new image tag for a new build.
+Review the new build before updating `FCLI_SHA256` in `.env` to the digest without its `sha256:` prefix. Keep checksum verification enabled. Use `docker compose build --pull bulk-audit` after selecting a verified release and rerun compatibility checks. Record the resulting image ID with `docker image inspect fcli-bulk-audit:poc-20261005 --format '{{.Id}}'` and use a new image tag for a new build.
 
 ## 3. Run the dry run
 
