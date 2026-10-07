@@ -169,6 +169,16 @@ class ComposeTests(unittest.TestCase):
             self.assertNotIn('TEST_ONLY_TOKEN', json.dumps(doc))
             self.assertFalse(any(key.startswith('AWS_') for key in env))
 
+    def test_cloudwatch_replaces_local_options_and_preserves_truststore(self):
+        doc = self.render('compose.truststore.yaml', 'compose.cloudwatch.yaml',
+                          AWS_REGION='us-east-1', CLOUDWATCH_LOG_GROUP='/test/bulk-audit')
+        service = doc['services']['bulk-audit']
+        self.assertEqual({'driver': 'awslogs', 'options': {
+            'awslogs-region': 'us-east-1', 'awslogs-group': '/test/bulk-audit',
+            'awslogs-create-group': 'false', 'awslogs-create-stream': 'true'}}, service['logging'])
+        self.assertEqual('/run/truststore/store', service['environment']['FCLI_TRUSTSTORE'])
+        self.assertEqual('/run/secrets/truststore-password', service['environment']['FCLI_TRUSTSTORE_PWD_FILE'])
+        self.assertFalse(any(key.startswith('AWS_') for key in service['environment']))
 
 
 if __name__ == '__main__':
