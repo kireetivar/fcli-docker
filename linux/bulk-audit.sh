@@ -161,7 +161,11 @@ run_cli() {
     event phase_started
     if [[ $phase == ssc_login ]]; then
         # The secret is an environment value only in this child, never an argv value.
-        (export FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN="$ssc_token"; exec fcli "$@") >/dev/null 2>&1 &
+        if [[ $quiet == true ]]; then
+            (export FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN="$ssc_token"; exec fcli "$@") >/dev/null 2>&1 &
+        else
+            (export FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN="$ssc_token"; exec fcli "$@") &
+        fi
     elif [[ $quiet == true ]]; then
         fcli "$@" >/dev/null 2>&1 &
     else
@@ -189,20 +193,22 @@ run_cli() {
 }
 
 event started "action=$action dry_run=$dry_run max_audits=$max_audits ssc_insecure=$ssc_insecure"
-phase=ssc_login
-ssc_login_args=(ssc session login --url "$SSC_URL" --disable sc-sast,sc-dast)
-if [[ $ssc_insecure == true ]]; then ssc_login_args+=(-k); fi
-run_cli true "${ssc_login_args[@]}"
-unset ssc_token
-phase=aviator_login
-run_cli true aviator session login --url "$AVIATOR_URL" --token "file:$aviator_token_file"
-phase=aviator_admin
-run_cli true aviator admin-config create --url "$AVIATOR_URL" --tenant "$AVIATOR_TENANT" --private-key "file:$admin_file"
-phase=audit
+# Mask file diagnostics before the first login. Login commands are streamed so a
+# failed session shows the same fcli output as the audit phase.
 export FCLI_DEFAULT_LOG_FILE="$scratch_dir/fcli.log"
 export FCLI_DEFAULT_LOG_LEVEL=INFO
 export FCLI_DEFAULT_LOG_MASK=high
 touch "$FCLI_DEFAULT_LOG_FILE"
+phase=ssc_login
+ssc_login_args=(ssc session login --url "$SSC_URL" --disable sc-sast,sc-dast)
+if [[ $ssc_insecure == true ]]; then ssc_login_args+=(-k); fi
+run_cli false "${ssc_login_args[@]}"
+unset ssc_token
+phase=aviator_login
+run_cli false aviator session login --url "$AVIATOR_URL" --token "file:$aviator_token_file"
+phase=aviator_admin
+run_cli false aviator admin-config create --url "$AVIATOR_URL" --tenant "$AVIATOR_TENANT" --private-key "file:$admin_file"
+phase=audit
 args=(ssc action run "$action" "--dry-run=$dry_run" "--max-audits=$max_audits" --progress=simple)
 # Omit blank filters so fcli uses its default of no inclusion filtering.
 if [[ -n ${filter//[[:space:]]/} ]]; then args+=("--filter=$filter"); fi
