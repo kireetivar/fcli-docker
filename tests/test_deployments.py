@@ -77,6 +77,22 @@ class HelmTests(unittest.TestCase):
                 self.assertEqual(7305, job['activeDeadlineSeconds'])
                 self.assertEqual(90, job['template']['spec']['terminationGracePeriodSeconds'])
 
+    def test_external_provider_matches_the_mounted_secret_contract(self):
+        example = ROOT / 'deploy/kubernetes/external-secrets-aws.yaml'
+        store, external = list(yaml.safe_load_all(example.read_text()))
+        secret_name = external['spec']['target']['name']
+        doc = self.render('--set', 'existingSecret=' + secret_name)
+        pod = doc['spec']['template']['spec']
+        volumes = {item['name']: item for item in pod['volumes']}
+        secret = volumes['credentials']['secret']
+        self.assertEqual(secret_name, secret['secretName'])
+        self.assertEqual({item['key'] for item in secret['items']},
+                         {item['secretKey'] for item in external['spec']['data']})
+        self.assertEqual(store['metadata']['name'], external['spec']['secretStoreRef']['name'])
+        self.assertEqual('SecretsManager', store['spec']['provider']['aws']['service'])
+        self.assertNotIn('auth', store['spec']['provider']['aws'])
+        self.assertFalse(pod['automountServiceAccountToken'])
+        self.assertTrue(all('remoteRef' in item for item in external['spec']['data']))
 
     def test_invalid_values_rejected(self):
         for setting in ("audit.action=arbitrary", "audit.maxAudits=0", "audit.sscUrl=http://insecure",
@@ -140,6 +156,18 @@ class ComposeTests(unittest.TestCase):
         chart = yaml.safe_load((CHART / 'values.yaml').read_text())
         self.assertEqual(service['image'], chart['image']['repository'] + ':' + chart['image']['tag'])
 
+    def test_customer_settings_and_external_file_sources(self):
+        with tempfile.TemporaryDirectory() as folder:
+            token = Path(folder) / 'provider-token'
+            token.write_text('TEST_ONLY_TOKEN')
+            doc = self.render(SSC_TOKEN_SOURCE=str(token), SSC_INSECURE='true',
+                              BULK_AUDIT_FILTER='Languages:java')
+            self.assertEqual(token.resolve(), Path(doc['secrets']['ssc-token']['file']).resolve())
+            env = doc['services']['bulk-audit']['environment']
+            self.assertEqual('true', env['SSC_INSECURE'])
+            self.assertEqual('Languages:java', env['BULK_AUDIT_FILTER'])
+            self.assertNotIn('TEST_ONLY_TOKEN', json.dumps(doc))
+            self.assertFalse(any(key.startswith('AWS_') for key in env))
 
 
 

@@ -49,8 +49,8 @@ volumes:
 
 secrets:
   ssc-token:
-    file: ./secrets/ssc-token
+    file: ${SSC_TOKEN_SOURCE:-./secrets/ssc-token}
   aviator-token:
-    file: ./secrets/aviator-token
+    file: ${AVIATOR_TOKEN_SOURCE:-./secrets/aviator-token}
   aviator-private-key:
-    file: ./secrets/aviator-private-key
+    file: ${AVIATOR_PRIVATE_KEY_SOURCE:-./secrets/aviator-private-key}
