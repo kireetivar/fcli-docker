@@ -147,7 +147,9 @@ RUN echo "fcli:x:10001:10001:fcli:/data:/sbin/nologin" >> /etc/passwd
 COPY --from=fcli-downloader /tmp/fcli-bin/fcli /usr/bin/fcli
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY welcome*.txt /usr/share/fcli/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Windows checkouts may retain CRLF despite .gitattributes. Normalize before exec.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    chmod 0755 /usr/local/bin/docker-entrypoint.sh
 ADD data.tgz /
 WORKDIR /data
 ENV FCLI_USER_HOME=/data
@@ -179,7 +181,9 @@ RUN echo "fcli:x:10001:10001:fcli:/data:/sbin/nologin" >> /etc/passwd
 COPY --from=fcli-downloader /tmp/fcli-bin/fcli /usr/bin/fcli
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY welcome*.txt /usr/share/fcli/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Windows checkouts may retain CRLF despite .gitattributes. Normalize before exec.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    chmod 0755 /usr/local/bin/docker-entrypoint.sh
 ADD data.tgz /
 WORKDIR /data
 ENV FCLI_USER_HOME=/data
@@ -226,7 +230,8 @@ LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit (POC)" \
       com.fortify.fcli.archive.sha256="${FCLI_SHA256}"
 USER root
 COPY bulk-audit.sh /usr/local/bin/fcli-bulk-audit
-RUN chmod 0755 /usr/local/bin/fcli-bulk-audit && \
+RUN sed -i 's/\r$//' /usr/local/bin/fcli-bulk-audit && \
+    chmod 0755 /usr/local/bin/fcli-bulk-audit && \
     mkdir -p /work && chown 10001:10001 /work
 USER fcli
 # Verify packaged action interfaces without authenticating or contacting SSC.

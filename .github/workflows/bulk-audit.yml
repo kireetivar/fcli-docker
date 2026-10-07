@@ -37,4 +37,6 @@ jobs:
           docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml config --quiet
           docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.yaml -f deploy/compose/compose.truststore.yaml config --quiet
       - name: Build and smoke-test Linux images without credentials
-        run: bash tests/smoke-images.sh
+        run: |
+          bash tests/smoke-images.sh
+          bash tests/smoke-images.sh --windows-checkout

@@ -258,6 +258,8 @@ docker compose --env-file deploy/compose/.env.example -f deploy/compose/compose.
 
 Runner tests need Bash and GNU coreutils; Windows tests use Git Bash. Linux additionally runs the explicit SIGTERM test. With a running Docker engine, use `bash tests/smoke-images.sh` to build and check the runner and both existing shared image variants without credentials.
 
+The Docker build converts copied shell scripts from CRLF to LF and sets mode `0755`, so existing Windows checkouts work without manual conversion. Run `bash tests/smoke-images.sh --windows-checkout` to test a temporary build context with CRLF scripts and restrictive file permissions; this leaves your checkout unchanged. CI runs both forms.
+
 Initial validation on this development PC verified the downloaded Windows binary's checksum/signature and action/authentication help, runner tests with a test double, and Helm/Compose rendering. **Docker image builds, Kubernetes execution, and live SSC/Aviator auditing remain to be tested on a suitable machine.** The CI workflow provides Linux and image checks but has not been executed as part of this local task.
 
 POC acceptance on the connected PC requires an intended-application dry run, one successful live SAST audit confirmed in SSC, readable logs, no credential values in logs, correct nonzero behavior for invalid credentials, and a fresh session on a subsequent invocation. DAST and the alias should then be exercised separately. Do not call this production-ready until the upstream failure-status limitation and the operational checks in the deployment design have been resolved.
