@@ -220,8 +220,10 @@ class RunnerTests(unittest.TestCase):
                 (self.base / "calls").write_text("")
                 result = self.run_runner(BULK_AUDIT_ACTION=action, BULK_AUDIT_DRY_RUN="false")
                 self.assertEqual(0, result.returncode, result.stderr)
-                self.assertIn('--dry-run=false\n', self.calls())
-                self.assertEqual(action != "bulkaudit-dast", '--add-aviator-tags\n' in self.calls())
+                calls = self.calls()
+                self.assertIn('ssc\naction\nrun\n' + action + '\n', calls)
+                self.assertIn('--dry-run=false\n', calls)
+                self.assertEqual(action != "bulkaudit-dast", '--add-aviator-tags\n' in calls)
 
     def test_configuration_is_not_shell_code(self):
         value = 'Application:"a b"; $(touch SHOULD_NOT_EXIST) `echo injected`'
