@@ -34,7 +34,7 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action help' ]]; then
 fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc session login' ]]; then
     [[ ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} == 'SSC_SENTINEL' ]] || exit 91
-    echo 'SSC_SENTINEL should never leave authentication output'
+    echo 'ssc session login output'
 elif [[ -n ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} ]]; then
     exit 92
 fi
@@ -47,6 +47,7 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'aviator session login' ]]; then
     [[ -n $token_file && -f $token_file ]] || exit 97
     # Command substitution would hide trailing LF and miss the original bug.
     printf '%s' AVIATOR_SENTINEL | cmp -s - "$token_file" || exit 96
+    echo 'aviator session login output'
 fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action run' ]]; then
     printf 'mock file diagnostic\n' >> "$FCLI_DEFAULT_LOG_FILE"
@@ -59,7 +60,7 @@ if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action run' ]]; then
     echo 'mock audit output'
     exit "${MOCK_AUDIT_EXIT:-0}"
 fi
-echo 'AVIATOR_SENTINEL PRIVATE_KEY_SENTINEL should not leave authentication output'
+echo 'aviator admin output'
 '''
 
 
@@ -121,6 +122,9 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('--dry-run=true\n', self.calls())
         self.assertIn('--max-audits=1\n', self.calls())
         self.assertIn('--add-aviator-tags\n', self.calls())
+        self.assertIn('ssc session login output', result.stdout)
+        self.assertIn('aviator session login output', result.stdout)
+        self.assertIn('aviator admin output', result.stdout)
         self.assertIn('mock audit output', result.stdout)
         self.assertIn('mock file diagnostic', result.stderr)
         self.assertIn('process_exit_does_not_guarantee_all_audits_succeeded', result.stderr)
