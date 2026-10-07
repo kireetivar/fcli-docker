@@ -39,14 +39,16 @@ class HelmTests(unittest.TestCase):
         self.assertEqual("", env["BULK_AUDIT_FILTER"])
         self.assertEqual("false", env["SSC_INSECURE"])
         self.assertNotIn("SSC_TOKEN", env)
-        self.assertEqual("Memory", pod["volumes"][0]["emptyDir"]["medium"])
-        self.assertEqual(0o440, pod["volumes"][2]["secret"]["defaultMode"])
-        self.assertEqual('128Mi', pod['volumes'][3]['emptyDir']['sizeLimit'])
+        volumes = {item['name']: item for item in pod['volumes']}
+        self.assertEqual("Memory", volumes['sessions']["emptyDir"]["medium"])
+        self.assertEqual(0o440, volumes['credentials']["secret"]["defaultMode"])
+        self.assertEqual('128Mi', volumes['audit-logs']['emptyDir']['sizeLimit'])
         self.assertIn({'name': 'audit-logs', 'mountPath': '/logs'}, container['volumeMounts'])
 
     def test_persistent_diagnostic_logs(self):
         doc = self.render('--set', 'storage.existingLogClaim=audit-history')
-        volume = doc['spec']['template']['spec']['volumes'][3]
+        volumes = {item['name']: item for item in doc['spec']['template']['spec']['volumes']}
+        volume = volumes['audit-logs']
         self.assertEqual({'claimName': 'audit-history'}, volume['persistentVolumeClaim'])
         self.assertNotIn('emptyDir', volume)
 
@@ -61,8 +63,20 @@ class HelmTests(unittest.TestCase):
         digest = "sha256:" + "a" * 64
         doc = self.render("--set", "truststore.existingSecret=company-ca", "--set", "image.digest=" + digest)
         pod = doc["spec"]["template"]["spec"]
-        self.assertEqual("company-ca", pod["volumes"][-1]["secret"]["secretName"])
+        volumes = {item['name']: item for item in pod['volumes']}
+        self.assertEqual("company-ca", volumes['truststore']["secret"]["secretName"])
         self.assertTrue(pod["containers"][0]["image"].endswith("@" + digest))
+
+    def test_deadline_follows_timeout_for_jobs_and_schedules(self):
+        for scheduled in ('false', 'true'):
+            with self.subTest(scheduled=scheduled):
+                doc = self.render('--set', 'schedule.enabled=' + scheduled,
+                                  '--set', 'audit.timeoutSeconds=7200',
+                                  '--set', 'job.terminationGracePeriodSeconds=90')
+                job = doc['spec']['jobTemplate']['spec'] if scheduled == 'true' else doc['spec']
+                self.assertEqual(7305, job['activeDeadlineSeconds'])
+                self.assertEqual(90, job['template']['spec']['terminationGracePeriodSeconds'])
+
 
     def test_invalid_values_rejected(self):
         for setting in ("audit.action=arbitrary", "audit.maxAudits=0", "audit.sscUrl=http://insecure",
@@ -87,54 +101,47 @@ class HelmTests(unittest.TestCase):
         self.assertNotIn("AVIATOR_INSECURE", env)
 
 
+@unittest.skipUnless(shutil.which("docker"), "Docker Compose is required for configuration checks")
 class ComposeTests(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("docker"), "Docker Compose is required for interpolation checks")
-    def test_ssc_insecure_interpolation(self):
-        compose = ROOT / "deploy/compose"
-        env = os.environ.copy()
-        for value in (None, "true", "false"):
-            with self.subTest(ssc_insecure=value):
-                env.pop("SSC_INSECURE", None)
-                if value is not None:
-                    env["SSC_INSECURE"] = value
-                result = subprocess.run(["docker", "compose", "--env-file", str(compose / ".env.example"),
-                                         "-f", str(compose / "compose.yaml"), "config", "--format", "json"],
-                                        env=env, capture_output=True, text=True)
-                self.assertEqual(0, result.returncode, result.stderr)
-                rendered = json.loads(result.stdout)["services"]["bulk-audit"]["environment"]
-                self.assertEqual(value or "false", rendered["SSC_INSECURE"])
+    def render(self, *overrides, **settings):
+        compose = ROOT / 'deploy/compose'
+        prefixes = ('BULK_AUDIT_', 'FCLI_', 'SSC_', 'AVIATOR_', 'AWS_', 'CLOUDWATCH_', 'COMPOSE_')
+        env = {key: value for key, value in os.environ.items() if not key.startswith(prefixes)}
+        env.update(settings)
+        command = ['docker', 'compose', '--env-file', str(compose / '.env.example'),
+                   '-f', str(compose / 'compose.yaml')]
+        for override in overrides:
+            command.extend(['-f', str(compose / override)])
+        result = subprocess.run(command + ['config', '--format', 'json'],
+                                env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        return json.loads(result.stdout)
 
-    @unittest.skipUnless(shutil.which("docker"), "Docker Compose is required for interpolation checks")
-    def test_optional_filter_interpolation(self):
-        compose = ROOT / "deploy/compose"
-        settings = '\n'.join(line for line in (compose / ".env.example").read_text().splitlines()
-                             if not line.startswith("BULK_AUDIT_FILTER=")) + '\n'
-        env = {key: value for key, value in os.environ.items() if not key.startswith("BULK_AUDIT_")}
-        with tempfile.TemporaryDirectory() as folder:
-            env_file = Path(folder) / "test.env"
-            for value in (None, "", "Languages:java"):
-                with self.subTest(filter=value):
-                    env_file.write_text(settings + ("" if value is None else "BULK_AUDIT_FILTER=" + value + '\n'))
-                    result = subprocess.run(["docker", "compose", "--env-file", str(env_file),
-                                             "-f", str(compose / "compose.yaml"), "config", "--format", "json"],
-                                            env=env, capture_output=True, text=True)
-                    self.assertEqual(0, result.returncode, result.stderr)
-                    rendered = json.loads(result.stdout)["services"]["bulk-audit"]["environment"]
-                    self.assertEqual(value or "", rendered["BULK_AUDIT_FILTER"])
-
-    def test_no_inline_secrets_and_bounded_storage(self):
-        doc = yaml.safe_load((ROOT / "deploy/compose/compose.yaml").read_text())
-        service = doc["services"]["bulk-audit"]
-        self.assertTrue(service["read_only"])
-        self.assertEqual("no", service["restart"])
-        self.assertEqual("10001:10001", service["user"])
-        self.assertEqual(3, len(service["secrets"]))
-        self.assertNotIn("SSC_TOKEN", service["environment"])
-        self.assertTrue(all("size=" in mount for mount in service["tmpfs"]))
-        self.assertEqual("local", service["logging"]["driver"])
-        self.assertEqual(['audit-logs:/logs'], service['volumes'])
-        self.assertIn('audit-logs', doc['volumes'])
+    def test_runtime_defaults_and_secret_files(self):
+        doc = self.render()
+        service = doc['services']['bulk-audit']
+        self.assertTrue(service['read_only'])
+        self.assertEqual('no', service['restart'])
+        self.assertEqual('10001:10001', service['user'])
+        self.assertEqual(['ALL'], service['cap_drop'])
+        self.assertEqual('true', service['environment']['BULK_AUDIT_DRY_RUN'])
+        self.assertEqual('1', service['environment']['BULK_AUDIT_MAX_AUDITS'])
+        self.assertEqual('false', service['environment']['SSC_INSECURE'])
+        self.assertEqual('', service['environment']['BULK_AUDIT_FILTER'])
+        self.assertNotIn('SSC_TOKEN', service['environment'])
+        self.assertEqual({'ssc-token', 'aviator-token', 'aviator-private-key'}, set(doc['secrets']))
+        self.assertTrue(all('size=' in mount for mount in service['tmpfs']))
+        self.assertEqual('local', service['logging']['driver'])
+        self.assertTrue(any(mount['target'] == '/logs' for mount in service['volumes']))
+        defaults = dict(line.split('=', 1) for line in (ROOT / 'deploy/compose/.env.example').read_text().splitlines()
+                        if line and not line.startswith('#'))
+        self.assertEqual(defaults['FCLI_VERSION'], service['build']['args']['FCLI_VERSION'])
+        self.assertEqual(defaults['FCLI_SHA256'], service['build']['args']['FCLI_SHA256'])
+        chart = yaml.safe_load((CHART / 'values.yaml').read_text())
+        self.assertEqual(service['image'], chart['image']['repository'] + ':' + chart['image']['tag'])
 
 
-if __name__ == "__main__":
+
+
+if __name__ == '__main__':
     unittest.main()

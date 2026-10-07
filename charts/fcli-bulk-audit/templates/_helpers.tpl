@@ -17,7 +17,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 
 {{- define "bulk.jobSpec" -}}
 backoffLimit: 0
-activeDeadlineSeconds: {{ .Values.job.activeDeadlineSeconds }}
+activeDeadlineSeconds: {{ add .Values.audit.timeoutSeconds .Values.job.terminationGracePeriodSeconds 15 }}
 ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished }}
 template:
   metadata:

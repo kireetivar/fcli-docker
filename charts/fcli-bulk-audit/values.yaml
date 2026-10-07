@@ -1,6 +1,6 @@
 image:
   repository: fcli-bulk-audit
-  tag: poc-20261005
+  tag: 3.28.0-poc.2
   digest: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
@@ -39,7 +39,7 @@ truststore:
   type: JKS
 
 job:
-  activeDeadlineSeconds: 3660
+  # The Job deadline adds the shutdown grace period and 15 seconds to audit.timeoutSeconds.
   ttlSecondsAfterFinished: 86400
   terminationGracePeriodSeconds: 45
 

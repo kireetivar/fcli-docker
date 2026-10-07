@@ -1,6 +1,3 @@
-{{- if le (int .Values.job.activeDeadlineSeconds) (int .Values.audit.timeoutSeconds) }}
-{{- fail "job.activeDeadlineSeconds must exceed audit.timeoutSeconds to allow cleanup" }}
-{{- end }}
 {{- if .Values.schedule.enabled }}
 apiVersion: batch/v1
 kind: CronJob

@@ -1,13 +1,13 @@
 services:
   bulk-audit:
-    image: ${BULK_AUDIT_IMAGE:-fcli-bulk-audit:poc-20261005}
+    image: ${BULK_AUDIT_IMAGE:?Set BULK_AUDIT_IMAGE in .env}
     platform: linux/amd64
     build:
       context: ../../linux
       target: fcli-bulk-audit
       args:
-        FCLI_VERSION: ${FCLI_VERSION:-v3.28.0}
-        FCLI_SHA256: ${FCLI_SHA256:-f1c272513e24c204abd700037d373b831131520e805b2b8409025e619f8b04f6}
+        FCLI_VERSION: ${FCLI_VERSION:?Set FCLI_VERSION in .env}
+        FCLI_SHA256: ${FCLI_SHA256:?Set FCLI_SHA256 in .env}
     user: "10001:10001"
     init: true
     read_only: true
@@ -35,12 +35,9 @@ services:
       BULK_AUDIT_TIMEOUT_SECONDS: ${BULK_AUDIT_TIMEOUT_SECONDS:-3600}
       BULK_AUDIT_EXCLUDE_FILTER: ${BULK_AUDIT_EXCLUDE_FILTER:-}
     secrets:
-      - source: ssc-token
-        target: ssc-token
-      - source: aviator-token
-        target: aviator-token
-      - source: aviator-private-key
-        target: aviator-private-key
+      - ssc-token
+      - aviator-token
+      - aviator-private-key
     logging:
       driver: local
       options:

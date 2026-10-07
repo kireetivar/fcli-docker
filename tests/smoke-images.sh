@@ -12,7 +12,12 @@ case "${1:-}" in
         # Keep the Docker context relative for Git Bash with path conversion off.
         mkdir -p .cache
         context=$(mktemp -d .cache/smoke-images.XXXXXXXX)
-        trap 'rm -rf -- "$context"' EXIT
+        context_path=$(cd "$context" && pwd -P)
+        case "$context_path" in
+            "$(pwd -P)/.cache/smoke-images."*) ;;
+            *) echo 'Temporary context is outside the workspace' >&2; exit 64 ;;
+        esac
+        trap 'rm -rf -- "$context_path"' EXIT
         cp -R linux/. "$context/"
         # Reproduce existing Windows files and restrictive checkout permissions.
         for script in docker-entrypoint.sh bulk-audit.sh; do
@@ -22,8 +27,11 @@ case "${1:-}" in
         ;;
     *) echo 'Usage: bash tests/smoke-images.sh [--windows-checkout]' >&2; exit 64 ;;
 esac
-version=${FCLI_VERSION:-v3.28.0}
-sha=${FCLI_SHA256:-f1c272513e24c204abd700037d373b831131520e805b2b8409025e619f8b04f6}
+# Read release defaults as data. Do not execute a configuration file.
+defaults=deploy/compose/.env.example
+version=${FCLI_VERSION:-$(sed -n 's/^FCLI_VERSION=//p' "$defaults" | tr -d '\r')}
+sha=${FCLI_SHA256:-$(sed -n 's/^FCLI_SHA256=//p' "$defaults" | tr -d '\r')}
+[[ -n $version && $sha =~ ^[a-f0-9]{64}$ ]] || { echo 'Invalid release defaults' >&2; exit 64; }
 for target in fcli-scratch fcli-ubi9 fcli-bulk-audit; do
     docker build --platform linux/amd64 --target "$target" \
         --build-arg "FCLI_VERSION=$version" --build-arg "FCLI_SHA256=$sha" \

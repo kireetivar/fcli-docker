@@ -184,10 +184,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "activeDeadlineSeconds": {
-          "type": "integer",
-          "minimum": 1
-        },
         "ttlSecondsAfterFinished": {
           "type": "integer",
           "minimum": 1
@@ -198,7 +194,6 @@
         }
       },
       "required": [
-        "activeDeadlineSeconds",
         "ttlSecondsAfterFinished",
         "terminationGracePeriodSeconds"
       ]
