@@ -6,7 +6,7 @@ umask 077
 
 if [[ ${1:-} == --help ]]; then
     printf '%s\n' 'Configure this one-shot runner using BULK_AUDIT_*, SSC_URL, AVIATOR_URL and AVIATOR_TENANT.' \
-        'See docs/bulk-audit-poc.md. --check-image checks CLI compatibility without credentials.'
+        'See docs/bulk-audit-poc-guide.md. --check-image checks CLI compatibility without credentials.'
     exit 0
 fi
 if (( $# > 1 )) || { (( $# == 1 )) && [[ $1 != --check-image ]]; }; then

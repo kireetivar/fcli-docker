@@ -6,4 +6,4 @@ Inspect logs:
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} --all-containers=true --prefix=true
 
 This fcli preview may return zero despite individual audit failures. Review action output and SSC results.
-See docs/bulk-audit-poc.md before enabling live execution or a schedule.
+See docs/bulk-audit-poc-guide.md before enabling live execution or a schedule.
