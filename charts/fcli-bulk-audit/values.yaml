@@ -19,7 +19,8 @@ audit:
   action: bulkaudit-sast
   dryRun: true
   maxAudits: 1
-  filter: CHANGE_ME
+  # Empty considers all eligible versions within maxAudits.
+  filter: ""
   excludeFilter: ""
   timeoutSeconds: 3600
   sscUrl: https://CHANGE_ME/ssc

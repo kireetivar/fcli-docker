@@ -61,7 +61,7 @@ mkdir -p secrets logs
 chmod 700 secrets logs
 ```
 
-Edit `.env` with your SSC URL, Aviator URL, tenant, and an **SSC filter verified to select the test application**. Keep `BULK_AUDIT_DRY_RUN=true` and `BULK_AUDIT_MAX_AUDITS=1`. The runner rejects empty filters and `CHANGE_ME` placeholders. A count limit alone does not select a particular application.
+Edit `.env` with your SSC URL, Aviator URL, and tenant. `BULK_AUDIT_FILTER` is optional: unset, empty, or whitespace-only values omit the inclusion filter, so fcli considers all eligible application versions accessible to the SSC session. An exclusion filter still applies if provided. Set an inclusion filter when you want to target a particular application/version. Keep `BULK_AUDIT_DRY_RUN=true` and `BULK_AUDIT_MAX_AUDITS=1` for the initial preview; the audit limit still applies without a filter. `CHANGE_ME` placeholders remain invalid, so clear an old `BULK_AUDIT_FILTER=CHANGE_ME` entry or remove that line.
 
 Use a trusted editor or your secret-management tool to create these UTF-8 files **without a byte-order mark**:
 

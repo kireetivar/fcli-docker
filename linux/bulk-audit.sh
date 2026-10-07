@@ -113,10 +113,12 @@ fi
 case "$action" in bulkaudit|bulkaudit-sast|bulkaudit-dast) ;; *) fail invalid_action ;; esac
 case "$dry_run" in true|false) ;; *) fail invalid_dry_run ;; esac
 [[ $max_audits =~ ^[1-9][0-9]{0,5}$ ]] || fail invalid_max_audits
-for name in SSC_URL AVIATOR_URL AVIATOR_TENANT BULK_AUDIT_FILTER; do
+for name in SSC_URL AVIATOR_URL AVIATOR_TENANT; do
     value=${!name:-}
     [[ -n ${value//[[:space:]]/} && $value != *CHANGE_ME* ]] || fail "missing_$name"
 done
+filter=${BULK_AUDIT_FILTER:-}
+[[ $filter != *CHANGE_ME* ]] || fail invalid_BULK_AUDIT_FILTER
 for name in SSC_URL AVIATOR_URL; do
     value=${!name}
     [[ $value == https://* && $value != *'@'* && $value != *'?'* && $value != *'#'* ]] || fail "invalid_$name"
@@ -186,7 +188,9 @@ export FCLI_DEFAULT_LOG_FILE="$scratch_dir/fcli.log"
 export FCLI_DEFAULT_LOG_LEVEL=INFO
 export FCLI_DEFAULT_LOG_MASK=high
 touch "$FCLI_DEFAULT_LOG_FILE"
-args=(ssc action run "$action" "--dry-run=$dry_run" "--max-audits=$max_audits" "--filter=$BULK_AUDIT_FILTER" --progress=simple)
+args=(ssc action run "$action" "--dry-run=$dry_run" "--max-audits=$max_audits" --progress=simple)
+# Omit blank filters so fcli uses its default of no inclusion filtering.
+if [[ -n ${filter//[[:space:]]/} ]]; then args+=("--filter=$filter"); fi
 if [[ $action != bulkaudit-dast ]]; then args+=(--add-aviator-tags); fi
 if [[ -n ${BULK_AUDIT_EXCLUDE_FILTER:-} ]]; then args+=("--exclude-filter=$BULK_AUDIT_EXCLUDE_FILTER"); fi
 run_cli false "${args[@]}"

@@ -67,7 +67,7 @@ template:
           - name: BULK_AUDIT_MAX_AUDITS
             value: {{ .Values.audit.maxAudits | quote }}
           - name: BULK_AUDIT_FILTER
-            value: {{ .Values.audit.filter | quote }}
+            value: {{ .Values.audit.filter | default "" | quote }}
           - name: BULK_AUDIT_EXCLUDE_FILTER
             value: {{ .Values.audit.excludeFilter | quote }}
           - name: BULK_AUDIT_TIMEOUT_SECONDS

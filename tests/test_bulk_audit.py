@@ -132,6 +132,22 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('--filter=' + value + '\n', self.calls())
         self.assertNotIn('injected\n', result.stdout)
 
+    def test_missing_empty_and_whitespace_filters_are_optional(self):
+        self.env.pop("BULK_AUDIT_FILTER")
+        for action in ("bulkaudit-sast", "bulkaudit-dast", "bulkaudit"):
+            for value in (None, "", " \t\r\n"):
+                with self.subTest(action=action, filter=value):
+                    (self.base / "calls").write_text("")
+                    settings = {} if value is None else {"BULK_AUDIT_FILTER": value}
+                    result = self.run_runner(BULK_AUDIT_ACTION=action,
+                                             BULK_AUDIT_EXCLUDE_FILTER="Languages:c#", **settings)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertIn('ssc\naction\nrun\n' + action + '\n', self.calls())
+                    self.assertNotIn('--filter=', self.calls())
+                    self.assertIn('--exclude-filter=Languages:c#\n', self.calls())
+                    self.assertIn('--dry-run=true\n', self.calls())
+                    self.assertIn('--max-audits=1\n', self.calls())
+
     def test_missing_and_empty_secrets_do_not_authenticate(self):
         (self.base / "secrets/ssc").write_text("")
         result = self.run_runner()
@@ -140,7 +156,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_invalid_configuration_does_not_authenticate(self):
         for settings in ({"BULK_AUDIT_ACTION": "arbitrary"}, {"BULK_AUDIT_MAX_AUDITS": "-1"},
-                         {"BULK_AUDIT_DRY_RUN": "yes"}, {"BULK_AUDIT_FILTER": " "},
+                         {"BULK_AUDIT_DRY_RUN": "yes"}, {"BULK_AUDIT_FILTER": "CHANGE_ME"},
                          {"SSC_URL": "http://insecure"}, {"AVIATOR_TENANT": "CHANGE_ME"}):
             with self.subTest(settings=settings):
                 result = self.run_runner(**settings)

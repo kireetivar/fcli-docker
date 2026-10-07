@@ -1,7 +1,10 @@
 """Render real Helm templates and validate deployment security/configuration."""
 from pathlib import Path
+import json
+import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -33,6 +36,7 @@ class HelmTests(unittest.TestCase):
         env = {item["name"]: item["value"] for item in container["env"]}
         self.assertEqual("true", env["BULK_AUDIT_DRY_RUN"])
         self.assertEqual("1", env["BULK_AUDIT_MAX_AUDITS"])
+        self.assertEqual("", env["BULK_AUDIT_FILTER"])
         self.assertNotIn("SSC_TOKEN", env)
         self.assertEqual("Memory", pod["volumes"][0]["emptyDir"]["medium"])
         self.assertEqual(0o440, pod["volumes"][2]["secret"]["defaultMode"])
@@ -57,8 +61,35 @@ class HelmTests(unittest.TestCase):
             with self.subTest(setting=setting):
                 self.render("--set", setting, success=False)
 
+    def test_optional_filter(self):
+        for setting, expected in (("audit.filter=", ""), ("audit.filter=null", ""),
+                                  ("audit.filter=Languages:java", "Languages:java")):
+            with self.subTest(setting=setting):
+                doc = self.render("--set", setting)
+                container = doc["spec"]["template"]["spec"]["containers"][0]
+                env = {item["name"]: item["value"] for item in container["env"]}
+                self.assertEqual(expected, env["BULK_AUDIT_FILTER"])
+
 
 class ComposeTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("docker"), "Docker Compose is required for interpolation checks")
+    def test_optional_filter_interpolation(self):
+        compose = ROOT / "deploy/compose"
+        settings = '\n'.join(line for line in (compose / ".env.example").read_text().splitlines()
+                             if not line.startswith("BULK_AUDIT_FILTER=")) + '\n'
+        env = {key: value for key, value in os.environ.items() if not key.startswith("BULK_AUDIT_")}
+        with tempfile.TemporaryDirectory() as folder:
+            env_file = Path(folder) / "test.env"
+            for value in (None, "", "Languages:java"):
+                with self.subTest(filter=value):
+                    env_file.write_text(settings + ("" if value is None else "BULK_AUDIT_FILTER=" + value + '\n'))
+                    result = subprocess.run(["docker", "compose", "--env-file", str(env_file),
+                                             "-f", str(compose / "compose.yaml"), "config", "--format", "json"],
+                                            env=env, capture_output=True, text=True)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    rendered = json.loads(result.stdout)["services"]["bulk-audit"]["environment"]
+                    self.assertEqual(value or "", rendered["BULK_AUDIT_FILTER"])
+
     def test_no_inline_secrets_and_bounded_storage(self):
         doc = yaml.safe_load((ROOT / "deploy/compose/compose.yaml").read_text())
         service = doc["services"]["bulk-audit"]

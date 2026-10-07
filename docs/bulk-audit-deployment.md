@@ -19,7 +19,7 @@ Supported actions will be:
 - Perform local validation without live credentials, and provide a repeatable live-test procedure for the other PC. Local checks alone do not establish that a real audit succeeds.
 - Document that a successful fcli process exit does not currently guarantee that all individual audits succeeded.
 
-Use this Windows PC for offline development/validation, and a connected PC for live testing. Use the latest compatible Aviator build, allow SAST tag preparation, and preview the selected application before at most one live audit. The implementation uses mounted secret files and console/file-diagnostic streaming. Customers must supply their endpoints and application filter on the connected PC. Cloud integrations remain outside the first milestone.
+Use this Windows PC for offline development/validation, and a connected PC for live testing. Use the latest compatible Aviator build, allow SAST tag preparation, and preview the selected application before at most one live audit. The implementation uses mounted secret files and console/file-diagnostic streaming. Customers must supply their endpoints on the connected PC. The application filter is optional; leaving it empty considers all eligible versions within the audit limit. Cloud integrations remain outside the first milestone.
 
 ## 1. Why Docker Compose and Helm?
 
