@@ -39,6 +39,15 @@ elif [[ -n ${FCLI_DEFAULT_SSC_SESSION_LOGIN_TOKEN:-} ]]; then
     exit 92
 fi
 if [[ "${1:-} ${2:-} ${3:-}" == "${MOCK_FAIL_COMMAND:-none}" ]]; then exit 23; fi
+if [[ "${1:-} ${2:-} ${3:-}" == 'aviator session login' ]]; then
+    token_file=
+    for arg in "$@"; do
+        [[ $arg == file:* ]] && token_file=${arg#file:}
+    done
+    [[ -n $token_file && -f $token_file ]] || exit 97
+    token_bytes=$(<"$token_file")
+    [[ $token_bytes == AVIATOR_SENTINEL ]] || exit 96
+fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action run' ]]; then
     printf 'mock file diagnostic\n' >> "$FCLI_DEFAULT_LOG_FILE"
     printf '%s\n' "$FCLI_USER_HOME" > "$STATE_RECORD"
