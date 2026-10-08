@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
+        with:
+          persist-credentials: false
       - name: Install test dependencies
         shell: bash
         run: |
@@ -34,7 +36,27 @@ jobs:
         run: |
           .cache/test-venv/bin/python -m unittest discover -s tests -v
           helm lint charts/fcli-bulk-audit
+          docker run --rm --network none -v "$PWD:/src:ro" \
+            koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
+            --severity=warning /src/linux/bulk-audit.sh /src/tests/smoke-images.sh
       - name: Build and smoke-test Linux images without credentials
         run: |
           bash tests/smoke-images.sh
           bash tests/smoke-images.sh --windows-checkout
+      - name: Scan source and audit image
+        env:
+          TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+        run: |
+          mkdir -p .cache/trivy
+          docker save fcli-test:fcli-bulk-audit -o .cache/bulk-audit.image.tar
+          scanner=(docker run --rm -v "$PWD:/src:ro" -v "$PWD/.cache:/audit"
+            "$TRIVY_IMAGE" --cache-dir /audit/trivy)
+          "${scanner[@]}" fs --scanners vuln,secret --exit-code 1 \
+            --skip-dirs /src/.git --skip-dirs /src/.cache /src
+          # Report unfixed findings as well as findings that have vendor fixes.
+          "${scanner[@]}" image --input /audit/bulk-audit.image.tar \
+            --scanners vuln --severity HIGH,CRITICAL
+          "${scanner[@]}" image --input /audit/bulk-audit.image.tar \
+            --scanners vuln --severity CRITICAL --exit-code 1
+          "${scanner[@]}" image --input /audit/bulk-audit.image.tar \
+            --scanners vuln --severity HIGH --ignore-unfixed --exit-code 1
