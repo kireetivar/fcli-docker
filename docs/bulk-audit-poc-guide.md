@@ -5,10 +5,10 @@
 | Item | Value |
 | --- | --- |
 | Status | Proof of concept (POC): a limited implementation for testing the design |
-| Guide date | 2026-10-07 |
+| Guide date | 2026-10-08 |
 | fcli release | `v3.28.0` |
-| Local image | `fcli-bulk-audit:3.28.0-poc.2` |
-| Helm chart | `0.2.0` |
+| Local image | `fcli-bulk-audit:3.28.0-poc.3` |
+| Helm chart | `0.2.1` |
 | Platform | Linux containers on Intel or AMD 64-bit processors |
 
 This POC does not establish production support for the fcli actions.
@@ -90,6 +90,8 @@ The chart now calculates the deadline as `audit.timeoutSeconds + job.termination
 The defaults produce a 3660-second Job deadline.
 Use a new image tag after further code changes.
 For releases, prefer an image digest, which identifies exact image content.
+The audit image uses UBI 9 minimal with a pinned base digest in `linux/Dockerfile`.
+Update that digest, rebuild, and scan the image when Red Hat publishes security fixes.
 
 ## 3. Docker Compose test
 
@@ -204,7 +206,7 @@ Test `bulkaudit` separately as the SAST alias.
 
 ## 4. Helm test and scheduling
 
-The cluster must support Kubernetes 1.27 or later.
+Use a vendor-supported Kubernetes release with Kubernetes 1.27 APIs or later.
 Use Helm 3 or 4 and the `kubectl` command for cluster access.
 The cluster must have the new image in its local image store or a registry.
 A registry stores downloadable images.
@@ -329,6 +331,7 @@ See the [provider documentation](https://external-secrets.io/latest/provider/aws
 The runner emits JSON lifecycle events to standard error.
 JSON is a structured text format.
 Events include `schema_version`, `run_id`, `phase`, `elapsed_seconds`, and a numeric or null `exit_code`.
+For audit executions, `run_id` matches the diagnostic directory name, including its random suffix.
 Direct fcli output remains visible as plain text.
 Collectors must accept both formats.
 
@@ -444,10 +447,9 @@ Deployment tests need Helm and Docker Compose; read skip messages when tools are
 With a running Docker engine, run `bash tests/smoke-images.sh` from Git Bash or Linux Bash.
 Use `bash tests/smoke-images.sh --windows-checkout` to check Windows line endings and file permissions.
 
-Windows checks passed 30 tests and skipped 1 Linux signal test.
-All 19 runner tests passed in a Linux container, including the signal test.
+All 20 runner tests passed in a Linux container, including the signal test.
 All 12 deployment tests passed.
-Helm lint and shell syntax checks passed.
+Helm lint and ShellCheck passed.
 All three images passed build and container checks for normal and Windows checkout formats.
 The AWS examples need live validation with customer infrastructure.
 This revision still needs a live SSC and Aviator test.
@@ -464,3 +466,80 @@ The remaining fcli improvements are:
 
 These changes would remove container workarounds and improve scheduler results.
 The POC keeps cloud identity, credential renewal, log retention, and scheduling outside the audit image.
+
+### Security audit: 2026-10-08
+
+The audit covered the POC branch changes, deployment templates, credential handling, CI, and the built Linux audit image.
+The reviewed branch started at commit `20f5b2d`.
+Gitleaks 8.30.1 found no secrets in the 19 POC commits reviewed before these fixes.
+Trivy 0.75.0 found no secrets in the tracked source snapshot or the audit image.
+Secret scans do not prove that every possible credential format is absent.
+
+| Change | Reason |
+| --- | --- |
+| Replace the UBI 9.7 standard runtime with pinned UBI 9.8 minimal | Remove unused packages and apply available base-image fixes. |
+| Remove privileged executable permissions | The audit process does not need tools that change user or group identity. |
+| Pass the tenant as `--tenant=value` | Prevent fcli from treating tenant values as argument files or command options. |
+| Disable process core dumps | Crash dumps can contain credentials from process memory. |
+| Include the log directory suffix in `run_id` | Containers can start during the same second with the same process identifier. |
+| Disable stored CI checkout credentials | The build and tests do not need repository credentials after checkout. |
+| Pin the test dependency and scanner images | Dependency updates require a reviewed version change. |
+
+An offline test confirmed that fcli 3.28.0 expands a separate tenant argument starting with `@`.
+The updated runner passes that value literally, and a regression test checks the argument form.
+
+Trivy reported these installed-package findings:
+
+| Severity | Previous audit image | Updated audit image |
+| --- | --- | --- |
+| Critical | 0 | 0 |
+| High | 72 | 13 |
+| Medium | 353 | 116 |
+| Low | 297 | 75 |
+
+The 13 remaining high findings cover seven distinct CVEs across OpenSSL, PCRE2, and util-linux packages.
+The scan lists no fixed package versions for those findings.
+
+| Package family | Open CVEs |
+| --- | --- |
+| util-linux | `CVE-2026-53613` |
+| OpenSSL | `CVE-2026-54876`, `CVE-2026-75804`, `CVE-2026-84782` |
+| PCRE2 | `CVE-2026-103111`, `CVE-2026-86145`, `CVE-2026-89161` |
+
+The scanner marks `CVE-2026-86145` as `will_not_fix`.
+These findings remain open; container restrictions do not prove that the affected code is unreachable.
+The generic `fcli-ubi9` image still uses its original base and needs separate remediation.
+
+CI scans source files for secrets and known dependency vulnerabilities.
+CI reports all high and critical audit-image findings.
+CI fails on critical findings and high findings with available fixes.
+A passing CI result does not close unfixed findings or approve production use.
+For a local scan with Trivy installed, run:
+
+```powershell
+trivy image --scanners vuln,secret --severity HIGH,CRITICAL fcli-bulk-audit:3.28.0-poc.3
+```
+
+Review each scan against the exact image digest and current vulnerability database.
+The image scan does not establish full dependency coverage inside the native fcli executable.
+Obtain an fcli software bill of materials (SBOM), which lists build dependencies, for that review.
+
+The configuration scan also reported default namespace, health-check, archive-copy, and Windows path warnings.
+Use the dedicated namespace from section 4.
+The audit container finishes each run, so a service health check does not apply.
+The existing Dockerfiles use `ADD` to extract local archives; Windows targets use the absolute path `C:/data`.
+The Windows runtime remains outside this Linux POC audit.
+
+Before production use, the platform owner must complete these checks:
+
+1. Resolve remaining image findings or record an approved risk decision for the exact image.
+2. Verify secret rotation and restrict access to Kubernetes Secrets, External Secrets resources, and log storage.
+3. Restrict network access to required SSC, Aviator, DNS, and proxy destinations through host or cluster controls.
+4. Block cloud metadata access unless the workload requires that service.
+5. Verify CloudWatch delivery and retention with the platform's AWS identity.
+6. Repeat the dry run and one-audit test against the live test environment.
+7. Review SSC results because fcli can return zero after individual audit failures.
+
+The chart does not install network policies or configure host crash-collection services.
+The host owner must also protect or disable any system crash collector.
+See [Kubernetes secret guidance](https://kubernetes.io/docs/concepts/security/secrets-good-practices/) and [Red Hat security advisories](https://access.redhat.com/security/security-updates/).
