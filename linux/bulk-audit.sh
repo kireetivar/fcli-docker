@@ -3,6 +3,8 @@
 set +x
 set -Eeuo pipefail
 umask 077
+# Core dumps can contain credentials from process memory.
+ulimit -c 0
 
 if [[ ${1:-} == --help ]]; then
     printf '%s\n' 'Configure this one-shot runner using BULK_AUDIT_*, SSC_URL, AVIATOR_URL and AVIATOR_TENANT.' \
@@ -184,6 +186,7 @@ prepare_logs() {
     log_root=${BULK_AUDIT_LOG_DIR:-/logs}
     [[ $log_root == /* && -d $log_root && -w $log_root ]] || fail log_directory_not_writable
     log_dir=$(mktemp -d "$log_root/$run_id.XXXXXXXX") || { event log_file_failed; exit 74; }
+    run_id=${log_dir##*/}
     printf 'fcli diagnostic logs: %s\n' "$log_dir" >&2
     # fcli's console appender shows WARN/ERROR, while INFO diagnostics stay in files.
     # Keep direct command output visible, including login failures and audit progress.
@@ -203,12 +206,13 @@ main() {
     prepare_credentials
     prepare_logs
     event started "action=$action dry_run=$dry_run max_audits=$max_audits ssc_insecure=$ssc_insecure"
-    ssc_login_args=(ssc session login --url "$SSC_URL" --disable sc-sast,sc-dast)
+    ssc_login_args=(ssc session login --url "$SSC_URL" --disable "sc-sast,sc-dast")
     if [[ $ssc_insecure == true ]]; then ssc_login_args+=(-k); fi
     run_cli ssc_login "${ssc_login_args[@]}"
     unset ssc_token
     run_cli aviator_login aviator session login --url "$AVIATOR_URL" --token "file:$aviator_token_file"
-    run_cli aviator_admin aviator admin-config create --url "$AVIATOR_URL" --tenant "$AVIATOR_TENANT" --private-key "file:$admin_file"
+    # Inline values prevent fcli from expanding a tenant that starts with @ as an argument file.
+    run_cli aviator_admin aviator admin-config create --url "$AVIATOR_URL" "--tenant=$AVIATOR_TENANT" --private-key "file:$admin_file"
     args=(ssc action run "$action" "--dry-run=$dry_run" "--max-audits=$max_audits" --progress=simple)
     # Omit blank filters so fcli uses its default of no inclusion filtering.
     if [[ -n ${filter//[[:space:]]/} ]]; then args+=("--filter=$filter"); fi

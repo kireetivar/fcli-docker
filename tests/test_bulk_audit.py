@@ -21,6 +21,7 @@ def shell_path(path):
 
 STUB = r'''#!/usr/bin/env bash
 set -eu
+[[ $(ulimit -c) == 0 ]] || exit 98
 printf '===CALL===\n' >> "$RECORDER"
 printf '%s\n' "$@" >> "$RECORDER"
 for name in FCLI_DATA_DIR FCLI_CONFIG_DIR FCLI_STATE_DIR FORTIFY_DATA_DIR FCLI_HOME; do
@@ -149,7 +150,9 @@ class RunnerTests(unittest.TestCase):
         result = self.run_runner(MOCK_AUDIT_EXIT='17')
         events = [json.loads(line) for line in result.stderr.splitlines() if line.startswith('{')]
         self.assertTrue(events)
-        self.assertEqual(1, len({event['run_id'] for event in events}))
+        run_dirs = {path.name for path in (self.base / 'logs').iterdir()}
+        self.assertEqual(1, len(run_dirs))
+        self.assertEqual(run_dirs, {event['run_id'] for event in events})
         for event in events:
             self.assertEqual(1, event['schema_version'])
             self.assertIsInstance(event['elapsed_seconds'], int)
@@ -231,6 +234,17 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn('--filter=' + value + '\n', self.calls())
         self.assertNotIn('injected\n', result.stdout)
+
+    def test_tenant_cannot_expand_argument_files_or_options(self):
+        for tenant in ('@' + self.env['SSC_TOKEN_FILE'], '--help', 'tenant with spaces'):
+            with self.subTest(tenant=tenant):
+                (self.base / 'calls').write_text('')
+                result = self.run_runner(AVIATOR_TENANT=tenant)
+                self.assertEqual(0, result.returncode, result.stderr)
+                calls = self.calls()
+                self.assertIn('--tenant=' + tenant + '\n', calls)
+                self.assertNotIn('\n' + tenant + '\n', calls)
+                self.assertEqual(1, calls.count('ssc\naction\nrun\n'))
 
     def test_missing_empty_and_whitespace_filters_are_optional(self):
         self.env.pop("BULK_AUDIT_FILTER")

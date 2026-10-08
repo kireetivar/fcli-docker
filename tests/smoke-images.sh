@@ -40,8 +40,10 @@ done
 docker run --rm --network none fcli-test:fcli-scratch --version
 docker run --rm --network none fcli-test:fcli-ubi9 fcli --version
 flags=(--rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges
-    --tmpfs /work:rw,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700
-    --tmpfs /tmp:rw,nosuid,nodev,size=1g,uid=10001,gid=10001,mode=0700)
+    --tmpfs "/work:rw,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700"
+    --tmpfs "/tmp:rw,nosuid,nodev,size=1g,uid=10001,gid=10001,mode=0700")
+docker run "${flags[@]}" --entrypoint /bin/bash fcli-test:fcli-bulk-audit \
+    -c 'test "$(id -u)" = 10001 && test -z "$(find /usr/bin /usr/sbin -xdev -type f -perm /6000 -print)"'
 docker run "${flags[@]}" fcli-test:fcli-bulk-audit --check-image
 code=0
 docker run "${flags[@]}" fcli-test:fcli-bulk-audit || code=$?
