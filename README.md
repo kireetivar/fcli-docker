@@ -4,6 +4,7 @@ This directory contains Dockerfiles and build configurations for creating fcli D
 
 ## Bulk-audit POC
 
+Use the [temporary runbook](docs/bulk-audit-poc-runbook.md) for a short Docker Compose or Helm test procedure.
 Use the [Bulk Audit POC Guide](docs/bulk-audit-poc-guide.md) for Docker Compose, Helm, credentials, logs, and testing.
 The container creates fresh sessions from credential files and runs one selected audit action.
 Start with a dry run and review the application scope before a live audit.
