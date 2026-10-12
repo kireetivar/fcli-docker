@@ -129,6 +129,47 @@ You need Helm, `kubectl`, and a test cluster with access to SSC and Aviator.
 9. Repeat steps 5 and 6. Save the output as `helm-live-sast.log`.
 10. Check the audit results in SSC. Restore `audit.dryRun: true` in the local values.
 
+### Repeat the Helm demo safely
+
+Use this procedure after the initial setup. Run commands in PowerShell from the repository root.
+
+1. Confirm the previous Job has finished:
+
+   ```powershell
+   kubectl -n fcli-audit get job poc-bulk-audit -o 'jsonpath={.status.conditions[*].type}'
+   ```
+
+   Look for a `Complete` or `Failed` condition. Wait if neither condition appears.
+   Inspect failures before repeating the demo.
+
+2. Save console output and uninstall the release:
+
+   ```powershell
+   New-Item -ItemType Directory -Force deploy/compose/logs
+   $demoLog = 'deploy/compose/logs/helm-demo-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.log'
+   kubectl -n fcli-audit logs job/poc-bulk-audit | Out-File -Encoding utf8 -ErrorAction Stop $demoLog
+   if ($LASTEXITCODE -ne 0) { throw 'Could not save Job logs. Keep the release and inspect the Pod.' }
+   helm uninstall poc --namespace fcli-audit --wait
+   ```
+
+   Stop if saving the output fails.
+   Uninstalling removes the Job, its Pods, and default diagnostic storage.
+   Export required diagnostic files before uninstalling. Console output does not include every diagnostic file.
+   The separately created credential Secret, namespace, image, and local values remain available.
+   Skip steps 1 and 2 before the first installation.
+
+3. Install a fresh Job and follow its logs:
+
+   ```powershell
+   helm install poc charts/fcli-bulk-audit --namespace fcli-audit --values charts/fcli-bulk-audit/values.local.yaml --set audit.dryRun=true --set audit.maxAudits=1 --set schedule.enabled=false
+   kubectl -n fcli-audit get jobs,pods
+   kubectl -n fcli-audit logs -f job/poc-bulk-audit
+   ```
+
+   This command forces a manual dry run, even if the local values previously enabled live execution.
+   Repeat the logs command if the Pod is still starting.
+   Repeat this procedure for each demo. A completed Job does not restart through an unchanged Helm upgrade.
+
 ## Check the result
 
 - A successful dry run must select the intended test application version.
