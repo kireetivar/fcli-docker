@@ -45,6 +45,14 @@ class HelmTests(unittest.TestCase):
         self.assertEqual('128Mi', volumes['audit-logs']['emptyDir']['sizeLimit'])
         self.assertIn({'name': 'audit-logs', 'mountPath': '/logs'}, container['volumeMounts'])
 
+    def test_only_supported_actions(self):
+        for action in ('audit-sast', 'audit-dast', 'sast-dast-correction'):
+            doc = self.render('--set', 'audit.action=' + action)
+            env = {item['name']: item['value'] for item in doc['spec']['template']['spec']['containers'][0]['env']}
+            self.assertEqual(action, env['BULK_AUDIT_ACTION'])
+        for action in ('bulkaudit', 'bulkaudit-sast', 'bulkaudit-dast', 'bulkcorrelate'):
+            self.render('--set', 'audit.action=' + action, success=False)
+
     def test_persistent_diagnostic_logs(self):
         doc = self.render('--set', 'storage.existingLogClaim=audit-history')
         volumes = {item['name']: item for item in doc['spec']['template']['spec']['volumes']}

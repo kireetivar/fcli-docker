@@ -31,7 +31,12 @@ done
 if [[ ${1:-} == --version ]]; then echo 'fcli test double'; exit 0; fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action help' ]]; then
     [[ ${MOCK_INCOMPATIBLE:-false} != true ]] || exit 2
-    echo '--dry-run --max-audits --filter --add-aviator-tags'
+    case "$4" in
+        bulkaudit-sast) echo '--dry-run --max-audits --filter --exclude-filter --add-aviator-tags' ;;
+        bulkaudit-dast) echo '--dry-run --max-audits --filter --exclude-filter' ;;
+        bulkcorrelate) echo '--dry-run --max-correlations --filter --exclude-filter' ;;
+        *) exit 2 ;;
+    esac
     exit 0
 fi
 printf '10:11:38.600 [main] INFO FCLI -- mock %s diagnostic\n' "${1:-}" > "$FCLI_DEFAULT_LOG_FILE"
@@ -217,16 +222,29 @@ class RunnerTests(unittest.TestCase):
                         self.assertNotIn('\n-k\n', call)
                 self.assertIn('ssc_insecure=' + value, result.stderr)
 
-    def test_dast_and_alias(self):
-        for action in ("bulkaudit-dast", "bulkaudit"):
+    def test_supported_actions_map_to_correct_cli_options(self):
+        for action, target, limit in (("audit-sast", "bulkaudit-sast", "--max-audits"),
+                                      ("audit-dast", "bulkaudit-dast", "--max-audits"),
+                                      ("sast-dast-correction", "bulkcorrelate", "--max-correlations")):
             with self.subTest(action=action):
                 (self.base / "calls").write_text("")
                 result = self.run_runner(BULK_AUDIT_ACTION=action, BULK_AUDIT_DRY_RUN="false")
                 self.assertEqual(0, result.returncode, result.stderr)
                 calls = self.calls()
-                self.assertIn('ssc\naction\nrun\n' + action + '\n', calls)
+                self.assertIn('ssc\naction\nrun\n' + target + '\n', calls)
                 self.assertIn('--dry-run=false\n', calls)
-                self.assertEqual(action != "bulkaudit-dast", '--add-aviator-tags\n' in calls)
+                self.assertIn(limit + '=1\n', calls)
+                other_limit = '--max-audits' if limit == '--max-correlations' else '--max-correlations'
+                self.assertNotIn(other_limit + '=', calls)
+                self.assertEqual(action == "audit-sast", '--add-aviator-tags\n' in calls)
+
+    def test_old_and_unrelated_actions_rejected_before_login(self):
+        for action in ('bulkaudit', 'bulkaudit-sast', 'bulkaudit-dast', 'bulkcorrelate', 'ci'):
+            with self.subTest(action=action):
+                result = self.run_runner(BULK_AUDIT_ACTION=action)
+                self.assertEqual(64, result.returncode, result.stderr)
+                self.assertIn('invalid_action', result.stderr)
+                self.assertEqual('', self.calls())
 
     def test_configuration_is_not_shell_code(self):
         value = 'Application:"a b"; $(touch SHOULD_NOT_EXIST) `echo injected`'

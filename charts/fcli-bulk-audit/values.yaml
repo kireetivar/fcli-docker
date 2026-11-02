@@ -16,7 +16,7 @@ schedule:
   failedJobsHistoryLimit: 3
 
 audit:
-  action: bulkaudit-sast
+  action: audit-sast
   dryRun: true
   maxAudits: 1
   # Empty considers all eligible versions within maxAudits.

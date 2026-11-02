@@ -54,9 +54,11 @@ The platform manages cloud access; the audit image contains no AWS client or AWS
 
 | Action | Use |
 | --- | --- |
-| `bulkaudit-sast` | Audit static application security testing (SAST) results. Start here. |
-| `bulkaudit-dast` | Audit dynamic application security testing (DAST) results. Use eligible WebInspect results. |
-| `bulkaudit` | Use the older SAST action name. The selected fcli release marks this alias as deprecated. |
+| `audit-sast` | Audit static application security testing (SAST) results. Start here. |
+| `audit-dast` | Audit dynamic application security testing (DAST) results. Use eligible WebInspect results. |
+| `sast-dast-correction` | Correlate existing SAST and DAST results using `bulkcorrelate`. |
+
+Only these three runner action names are accepted. `audit-sast` maps to fcli `bulkaudit-sast`; `audit-dast` maps to `bulkaudit-dast`. The requested name `sast-dast-correction` maps to fcli SAST?DAST **correlation**, not remediation. `BULK_AUDIT_MAX_AUDITS` (Helm: `audit.maxAudits`) limits application versions for all three actions: it becomes `--max-correlations` for correlation and `--max-audits` for audits. Existing deployments must replace old `bulkaudit*` configuration values with the new runner names.
 
 A **dry run** connects to the servers and previews proposed work without performing the audit.
 A **live audit** can create Aviator applications, prepare SSC tags, consume quota, and change SSC audit results.
@@ -200,9 +202,9 @@ That result does not prove that the selected application has data suitable for a
 The current bulk actions can continue after individual failures.
 The runner preserves fcli exit codes and does not retry the audit automatically.
 
-For DAST, select `BULK_AUDIT_ACTION=bulkaudit-dast` and suitable WebInspect data.
+For DAST, select `BULK_AUDIT_ACTION=audit-dast` and suitable WebInspect data.
 Repeat the preview before a live DAST audit.
-Test `bulkaudit` separately as the SAST alias.
+For SAST?DAST correlation, select `BULK_AUDIT_ACTION=sast-dast-correction` and an application version with both processed SAST and DAST artifacts.
 
 ## 4. Helm test and scheduling
 

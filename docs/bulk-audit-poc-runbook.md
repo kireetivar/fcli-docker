@@ -22,7 +22,7 @@ A dry run previews work without performing an audit.
    Keep these settings:
 
    ```dotenv
-   BULK_AUDIT_ACTION=bulkaudit-sast
+   BULK_AUDIT_ACTION=audit-sast
    BULK_AUDIT_DRY_RUN=true
    BULK_AUDIT_MAX_AUDITS=1
    SSC_INSECURE=false
@@ -96,7 +96,7 @@ You need Helm, `kubectl`, and a test cluster with access to SSC and Aviator.
    - Set `image.repository` and `image.tag` to the available image.
    - Set `imagePullSecrets` if your registry requires authentication.
    - Set `audit.sscUrl`, `audit.aviatorUrl`, `audit.aviatorTenant`, and `audit.filter`.
-   - Keep `audit.action: bulkaudit-sast`, `audit.dryRun: true`, and `audit.maxAudits: 1`.
+   - Keep `audit.action: audit-sast`, `audit.dryRun: true`, and `audit.maxAudits: 1`.
    - Keep `schedule.enabled: false` and `audit.sscInsecure: false`.
    - Use `image.pullPolicy: Never` only when every eligible cluster node already has the image.
 

@@ -31,9 +31,11 @@ This POC audits existing results. The POC does not build application code or sta
 
 | Action | Purpose |
 | --- | --- |
-| `bulkaudit-sast` | Audit SAST results. This is the default action. |
-| `bulkaudit-dast` | Audit DAST results. |
-| `bulkaudit` | Keep compatibility with the older SAST action name. fcli marks this alias as deprecated. |
+| `audit-sast` | Audit SAST results. This is the default action. |
+| `audit-dast` | Audit DAST results. |
+| `sast-dast-correction` | Correlate existing SAST and DAST results using `bulkcorrelate`. |
+
+Only these three runner action names are accepted. `audit-sast` maps to fcli `bulkaudit-sast`; `audit-dast` maps to `bulkaudit-dast`. The requested name `sast-dast-correction` maps to fcli SAST?DAST **correlation**, not remediation. `BULK_AUDIT_MAX_AUDITS` (Helm: `audit.maxAudits`) limits application versions for all three actions: it becomes `--max-correlations` for correlation and `--max-audits` for audits. Existing deployments must replace old `bulkaudit*` configuration values with the new runner names.
 
 ## 2. What do Docker, Compose, Kubernetes, and Helm do?
 
@@ -111,7 +113,7 @@ flowchart TD
 7. The runner writes progress and status output while fcli runs.
 8. The runner removes temporary session files when the process exits normally or handles a stop signal.
 
-The SAST actions receive `--add-aviator-tags` so fcli can prepare the required Aviator tag.
+Only `audit-sast` receives `--add-aviator-tags` so fcli can prepare the required Aviator tag.
 A live audit can change SSC results, create Aviator applications, and consume quota.
 
 The default configuration previews work and limits execution to one application-version audit.

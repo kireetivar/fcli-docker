@@ -96,9 +96,9 @@
       "properties": {
         "action": {
           "enum": [
-            "bulkaudit",
-            "bulkaudit-sast",
-            "bulkaudit-dast"
+            "sast-dast-correction",
+            "audit-sast",
+            "audit-dast"
           ]
         },
         "dryRun": {

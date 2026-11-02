@@ -32,7 +32,7 @@ phase=validation
 child_pid=
 state_dir=
 scratch_dir=
-action=${BULK_AUDIT_ACTION:-bulkaudit-sast}
+action=${BULK_AUDIT_ACTION:-audit-sast}
 dry_run=${BULK_AUDIT_DRY_RUN:-true}
 max_audits=${BULK_AUDIT_MAX_AUDITS:-1}
 started=$SECONDS
@@ -89,16 +89,18 @@ prepare_session() {
 }
 
 check_image() {
-    local candidate help_text required
+    local candidate help_text required limit_option
     fcli --version
-    for candidate in bulkaudit bulkaudit-sast bulkaudit-dast; do
+    for candidate in bulkaudit-sast bulkaudit-dast bulkcorrelate; do
         help_text=$(fcli ssc action help "$candidate" 2>&1) || {
             event incompatible_image "$candidate"; return 69;
         }
-        for required in --dry-run --max-audits --filter; do
+        limit_option=--max-audits
+        [[ $candidate != bulkcorrelate ]] || limit_option=--max-correlations
+        for required in --dry-run "$limit_option" --filter --exclude-filter; do
             [[ $help_text == *"$required"* ]] || { event incompatible_image "$candidate"; return 69; }
         done
-        if [[ $candidate != bulkaudit-dast && $help_text != *--add-aviator-tags* ]]; then
+        if [[ $candidate == bulkaudit-sast && $help_text != *--add-aviator-tags* ]]; then
             event incompatible_image "$candidate"; return 69
         fi
     done
@@ -107,7 +109,12 @@ check_image() {
 
 validate_config() {
     local name value
-    case "$action" in bulkaudit|bulkaudit-sast|bulkaudit-dast) ;; *) fail invalid_action ;; esac
+    case "$action" in
+        audit-sast) fcli_action=bulkaudit-sast; limit_option=--max-audits ;;
+        audit-dast) fcli_action=bulkaudit-dast; limit_option=--max-audits ;;
+        sast-dast-correction) fcli_action=bulkcorrelate; limit_option=--max-correlations ;;
+        *) fail invalid_action ;;
+    esac
     case "$dry_run" in true|false) ;; *) fail invalid_dry_run ;; esac
     ssc_insecure=${SSC_INSECURE:-false}
     case "$ssc_insecure" in true|false) ;; *) fail invalid_ssc_insecure ;; esac
@@ -213,10 +220,10 @@ main() {
     run_cli aviator_login aviator session login --url "$AVIATOR_URL" --token "file:$aviator_token_file"
     # Inline values prevent fcli from expanding a tenant that starts with @ as an argument file.
     run_cli aviator_admin aviator admin-config create --url "$AVIATOR_URL" "--tenant=$AVIATOR_TENANT" --private-key "file:$admin_file"
-    args=(ssc action run "$action" "--dry-run=$dry_run" "--max-audits=$max_audits" --progress=simple)
+    args=(ssc action run "$fcli_action" "--dry-run=$dry_run" "$limit_option=$max_audits" --progress=simple)
     # Omit blank filters so fcli uses its default of no inclusion filtering.
     if [[ -n ${filter//[[:space:]]/} ]]; then args+=("--filter=$filter"); fi
-    if [[ $action != bulkaudit-dast ]]; then args+=(--add-aviator-tags); fi
+    if [[ $action == audit-sast ]]; then args+=(--add-aviator-tags); fi
     if [[ -n ${BULK_AUDIT_EXCLUDE_FILTER:-} ]]; then args+=("--exclude-filter=$BULK_AUDIT_EXCLUDE_FILTER"); fi
     run_cli audit "${args[@]}"
     event result_notice process_exit_does_not_guarantee_all_audits_succeeded
