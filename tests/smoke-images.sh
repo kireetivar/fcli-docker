@@ -43,7 +43,7 @@ flags=(--rm --network none --read-only --cap-drop ALL --security-opt no-new-priv
     --tmpfs "/work:rw,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700"
     --tmpfs "/tmp:rw,nosuid,nodev,size=1g,uid=10001,gid=10001,mode=0700")
 docker run "${flags[@]}" --entrypoint /bin/bash fcli-test:fcli-bulk-audit \
-    -c 'test "$(id -u)" = 10001 && test -z "$(find /usr/bin /usr/sbin -xdev -type f -perm /6000 -print)"'
+    -c 'test "$(id -u)" = 10001 || exit 1; for file in /usr/bin/* /usr/sbin/*; do if [[ -f $file && ( -u $file || -g $file ) ]]; then exit 1; fi; done'
 docker run "${flags[@]}" fcli-test:fcli-bulk-audit --check-image
 code=0
 docker run "${flags[@]}" fcli-test:fcli-bulk-audit || code=$?

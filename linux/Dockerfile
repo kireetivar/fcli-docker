@@ -219,11 +219,16 @@ ENV SC_CLIENT_CMD=/opt/fortify/sc-client/bin/scancentral
 ENV PATH="/opt/fortify/sc-client/bin:${PATH}"
 USER fcli
 
+# Normalize the runner in the build stage; the minimal runtime needs no sed.
+FROM fcli-downloader AS bulk-audit-script
+COPY bulk-audit.sh /tmp/bulk-audit.sh
+RUN sed -i 's/\r$//' /tmp/bulk-audit.sh
+
 # ============================================================================
 # Stage: fcli-bulk-audit
 # One-shot runner for SSC/Aviator bulk audits. No credentials in the image.
 # ============================================================================
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8@sha256:5ed244b62bbf4095080144d9d35eb8fcd3d39a9801f94aadd63b9d10978a01ae AS fcli-bulk-audit
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal@sha256:d4495d25da60ef3f2d44bc7f6a2dd2ec1646c14414e0dfaaa44dc3ff653e1c2b AS fcli-bulk-audit
 ARG FCLI_VERSION
 ARG FCLI_SHA256
 LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit (POC)" \
@@ -233,14 +238,14 @@ LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit (POC)" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${FCLI_VERSION}" \
       com.fortify.fcli.archive.sha256="${FCLI_SHA256}"
-USER root
+USER 0:0
+SHELL ["/bin/bash", "-c"]
 COPY --from=fcli-downloader /tmp/fcli-bin/fcli /usr/bin/fcli
-COPY bulk-audit.sh /usr/local/bin/fcli-bulk-audit
-RUN sed -i 's/\r$//' /usr/local/bin/fcli-bulk-audit && \
-    chmod 0755 /usr/local/bin/fcli-bulk-audit && \
+COPY --from=bulk-audit-script /tmp/bulk-audit.sh /usr/local/bin/fcli-bulk-audit
+RUN chmod 0755 /usr/local/bin/fcli-bulk-audit && \
     echo "fcli:x:10001:10001:fcli:/work:/sbin/nologin" >> /etc/passwd && \
     echo "fcli:x:10001:" >> /etc/group && \
-    find /usr/bin /usr/sbin -xdev -type f -perm /6000 -exec chmod a-s {} + && \
+    for file in /usr/bin/* /usr/sbin/*; do if [[ -f $file && ( -u $file || -g $file ) ]]; then chmod a-s "$file"; fi; done && \
     mkdir -p /work /logs && chown 10001:10001 /work /logs && chmod 0700 /logs
 USER 10001:10001
 # Verify packaged action interfaces without authenticating or contacting SSC.
