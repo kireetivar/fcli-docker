@@ -6,7 +6,7 @@ This summary covers the Linux bulk-audit POC. These controls do not establish pr
 
 - **Separate credentials:** Compose and Kubernetes mount credential files. Credentials stay outside the image and tracked settings.
 - **Restricted container:** The audit runs as user `10001`. Compose and Helm restrict permissions and make the root filesystem read-only.
-- **Smaller image:** The audit image uses UBI Minimal with an exact base-image identifier. This removes unnecessary packages.
+- **Smaller image:** The audit image uses Amazon Linux 2023 Minimal with an exact base-image identifier. This removes unnecessary packages.
 - **Verified fcli download:** The build checks the publisher signature. Compose also supplies the expected archive checksum.
 - **Safer inputs:** The runner validates settings and passes arguments without evaluating shell code. Tenant values cannot load argument files.
 - **Temporary sessions:** The runner creates private sessions and removes temporary data on normal exit or handled stop signals.
@@ -17,7 +17,7 @@ This summary covers the Linux bulk-audit POC. These controls do not establish pr
 
 ## Remaining work
 
-- **Review vulnerabilities:** The 2026-10-08 scan reported zero critical findings and 13 high package findings across seven vulnerabilities.
+- **Review vulnerabilities:** The [2026-11-03 evaluation](base-image-provider-evaluation-2026-11-03.md) found zero known package vulnerabilities in the AWS candidate. The earlier UBI scan remains a historical record.
   Rescan the release image. Resolve findings or record an approved risk decision.
 - **Review fcli dependencies:** Obtain the upstream dependency list. Operating system scans do not cover every dependency inside fcli.
 - **Protect credentials:** Configure Kubernetes storage encryption and access controls. Test credential replacement and expiry.
