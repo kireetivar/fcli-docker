@@ -5,10 +5,10 @@
 | Item | Value |
 | --- | --- |
 | Status | Proof of concept (POC): a limited implementation for testing the design |
-| Guide date | 2026-10-08 |
-| fcli release | `v3.28.0` |
-| Local image | `fcli-bulk-audit:3.28.0-poc.3` |
-| Helm chart | `0.2.1` |
+| Guide date | 2026-11-01 |
+| fcli release | `v3.29.0` |
+| Local image | `fcli-bulk-audit:3.29.0-poc.2` |
+| Helm chart | `0.2.3` |
 | Platform | Linux containers on Intel or AMD 64-bit processors |
 
 This POC does not establish production support for the fcli actions.
@@ -433,6 +433,10 @@ Temporary files use container memory, so larger result files can need higher lim
 
 ## 8. Validation and remaining work
 
+The 2026-11-01 refresh updates fcli to v3.29.0. The 2026-11-03 provider evaluation selected Amazon Linux 2023 Minimal for the audit image.
+The evaluated AWS based candidate reported zero findings at every severity in Trivy. See the [provider evaluation](base-image-provider-evaluation-2026-11-03.md) for image identifiers, comparison results, and reproduction commands.
+The security audit below remains the historical 2026-10-08 record.
+
 From the repository root, run:
 
 ```powershell
@@ -517,7 +521,7 @@ A passing CI result does not close unfixed findings or approve production use.
 For a local scan with Trivy installed, run:
 
 ```powershell
-trivy image --scanners vuln,secret --severity HIGH,CRITICAL fcli-bulk-audit:3.28.0-poc.3
+trivy image --scanners vuln,secret --severity HIGH,CRITICAL fcli-bulk-audit:3.29.0-poc.2
 ```
 
 Review each scan against the exact image digest and current vulnerability database.
