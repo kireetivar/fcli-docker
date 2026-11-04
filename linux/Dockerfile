@@ -98,20 +98,18 @@ RUN case "$TARGETPLATFORM" in \
 
 # Download fcli and signature
 # Note: CACHE_BUST arg forces re-download for rolling tags when release is updated
-RUN echo "Cache bust: ${CACHE_BUST}" && \
+RUN echo "Archive SHA-256: ${FCLI_SHA256}; cache bust: ${CACHE_BUST}" && \
     ARCHIVE=$(cat /tmp/archive_name) && \
     DOWNLOAD_URL="https://github.com/fortify/fcli/releases/download/${FCLI_VERSION}/${ARCHIVE}" && \
     SIGNATURE_URL="${DOWNLOAD_URL}.rsa_sha256" && \
     echo "Downloading fcli from: $DOWNLOAD_URL" && \
     curl -fsSL "$DOWNLOAD_URL" -o "/tmp/${ARCHIVE}" && \
+    if [ -n "$FCLI_SHA256" ]; then echo "$FCLI_SHA256  /tmp/$ARCHIVE" | sha256sum -c -; fi && \
     echo "Downloading signature from: $SIGNATURE_URL" && \
     curl -fsSL "$SIGNATURE_URL" -o "/tmp/${ARCHIVE}.rsa_sha256"
 
 # Verify signature
 RUN ARCHIVE=$(cat /tmp/archive_name) && \
-    if [ -n "$FCLI_SHA256" ]; then \
-      echo "$FCLI_SHA256  /tmp/$ARCHIVE" | sha256sum -c -; \
-    fi && \
     echo "Verifying signature..." && \
     openssl dgst -sha256 -verify /tmp/keys/fortify.pub \
       -signature "/tmp/${ARCHIVE}.rsa_sha256" "/tmp/${ARCHIVE}" && \

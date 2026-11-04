@@ -55,481 +55,125 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  
+
+concurrency:
+  group: docker-release-${{ inputs.releaseTag }}
+  cancel-in-progress: false
+
 jobs:
-  check-base-images:
-    name: Check Base Images
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: Alpine
-            image: docker://library/alpine
-            current: ${{ inputs.alpineBase }}
-            pattern: '^3\.[0-9]+\.[0-9]+$'
-          - name: Red Hat UBI9
-            image: docker://redhat/ubi9
-            current: ${{ inputs.ubiBase }}
-            pattern: '^9\.[0-9]+(\.[0-9]+)?$'
-          - name: Windows Server Core
-            image: docker://mcr.microsoft.com/windows/servercore
-            current_versions: ${{ inputs.servercoreVersions }}
-            pattern: '^ltsc[0-9]+$'
-      fail-fast: false
-    steps:
-      - name: Check ${{ matrix.name }}
-        continue-on-error: true
-        run: |
-          # skopeo is pre-installed on ubuntu-latest, handles pagination internally,
-          # and works uniformly across Docker Hub and MCR without authentication
-          # (all referenced images are public).
-          LATEST=$(skopeo list-tags '${{ matrix.image }}' 2>/dev/null | \
-            jq -r '.Tags[]' 2>/dev/null | grep -E '${{ matrix.pattern }}' | sort -V | tail -1)
-
-          if [[ -z "$LATEST" ]]; then
-            echo "::notice::Could not determine latest ${{ matrix.name }} version"
-          elif [[ -n "${{ matrix.current }}" ]]; then
-            CURRENT_TAG="${{ matrix.current }}"
-            CURRENT_TAG="${CURRENT_TAG##*:}"
-            if [[ "$LATEST" != "$CURRENT_TAG" ]]; then
-              echo "::warning::Newer ${{ matrix.name }} version available: $LATEST (current: $CURRENT_TAG)"
-            else
-              echo "✓ ${{ matrix.name }} is up to date: ${{ matrix.current }}"
-            fi
-          else
-            CURRENT_VERSIONS="${{ matrix.current_versions }}"
-            IFS=',' read -ra VERSIONS <<< "$CURRENT_VERSIONS"
-            MATRIX_LATEST=$(printf '%s\n' "${VERSIONS[@]}" | sort -V | tail -1)
-            if [[ "$LATEST" != "$MATRIX_LATEST" ]]; then
-              echo "::warning::Newer ${{ matrix.name }} version available: $LATEST (latest in matrix: $MATRIX_LATEST)"
-            else
-              echo "✓ ${{ matrix.name }} is up to date: $MATRIX_LATEST"
-            fi
-            echo "Matrix includes: $CURRENT_VERSIONS"
-          fi
-
-  generate-metadata:
-    name: Generate Tag Metadata
+  plan:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.meta.outputs.version }}
-      major: ${{ steps.meta.outputs.major }}
-      minor: ${{ steps.meta.outputs.minor }}
-      patch: ${{ steps.meta.outputs.patch }}
-      timestamp: ${{ steps.meta.outputs.timestamp }}
-      is_semantic: ${{ steps.meta.outputs.is_semantic }}
-      release_updated_at: ${{ steps.meta.outputs.release_updated_at }}
-      image_name: ${{ steps.image.outputs.image_name }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+      image_name: ${{ steps.plan.outputs.image_name }}
+      linux_sha256: ${{ steps.plan.outputs.linux_sha256 }}
+      windows_sha256: ${{ steps.plan.outputs.windows_sha256 }}
+      ubi_base: ${{ steps.plan.outputs.ubi_base }}
+      alpine_base: ${{ steps.plan.outputs.alpine_base }}
+      linux_matrix: ${{ steps.plan.outputs.linux_matrix }}
+      windows_matrix: ${{ steps.plan.outputs.windows_matrix }}
     steps:
-      - name: Extract metadata
-        id: meta
-        run: |
-          # Extract version from tag (remove 'v' prefix if present)
-          VERSION="${{ inputs.releaseTag }}"
-          VERSION="${VERSION#v}"
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          
-          # Get release updated_at timestamp to bust Docker cache for rolling tags
-          RELEASE_DATA=$(curl -fsSL -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/fortify/fcli/releases/tags/${{ inputs.releaseTag }}")
-          RELEASE_UPDATED_AT=$(echo "$RELEASE_DATA" | jq -r '.published_at // .created_at // ""')
-          echo "release_updated_at=${RELEASE_UPDATED_AT}" >> $GITHUB_OUTPUT
-          echo "Release updated at: ${RELEASE_UPDATED_AT}"
-          
-          # Try to parse semantic version components (x.y.z)
-          if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
-            MAJOR="${BASH_REMATCH[1]}"
-            MINOR="${BASH_REMATCH[2]}"
-            PATCH="${BASH_REMATCH[3]}"
-            
-            echo "major=${MAJOR}" >> $GITHUB_OUTPUT
-            echo "minor=${MINOR}" >> $GITHUB_OUTPUT
-            echo "patch=${PATCH}" >> $GITHUB_OUTPUT
-            echo "is_semantic=true" >> $GITHUB_OUTPUT
-            
-            # Generate timestamp for semantic versions
-            TIMESTAMP=$(date +%Y%m%d%H%M%S)
-            echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
-            
-            echo "Semantic version detected: ${MAJOR}.${MINOR}.${PATCH} (timestamp: ${TIMESTAMP})"
-          else
-            echo "is_semantic=false" >> $GITHUB_OUTPUT
-            echo "Non-semantic version: ${VERSION} (no timestamp or semantic tags)"
-          fi
-
-      - name: Determine target image name
-        id: image
-        run: |
-          if [[ "${{ inputs.releaseTag }}" == dev_* ]]; then
-            echo "image_name=fortifydocker/fcli-dev" >> $GITHUB_OUTPUT
-          else
-            echo "image_name=fortifydocker/fcli" >> $GITHUB_OUTPUT
-          fi
-
-  generate-linux-matrix:
-    name: Generate Linux Matrix
-    needs: [generate-metadata]
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-      has_variants: ${{ steps.matrix.outputs.has_variants }}
-    steps:
-      - name: Determine sc-client versions to build
-        id: sc-versions
+      - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
+        with:
+          persist-credentials: false
+      - name: Validate inputs and resolve archive digests
+        id: plan
         env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-        run: |
-          if [[ "${{ inputs.buildProduction }}" != "true" ]]; then
-            echo "sc_versions=[]" >> $GITHUB_OUTPUT
-            echo "Skipping sc-client version detection (production builds not enabled)"
-            exit 0
-          fi
-
-          BASE_VERSION="${{ inputs.releaseTag }}"
-          BASE_VERSION="${BASE_VERSION#v}"
-          IMAGE="${{ needs.generate-metadata.outputs.image_name }}"
-          SC_PREFIX="${BASE_VERSION}-ubi9-sc"
-
-          # Authenticate to Docker Hub using the same credentials as for publishing.
-          # Skopeo reads ~/.docker/config.json written by docker login, avoiding
-          # anonymous rate limits. Falls back to anonymous if credentials are absent.
-          if [[ -n "$DOCKER_USERNAME" && -n "$DOCKER_PASSWORD" ]]; then
-            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin 2>/dev/null || true
-          fi
-
-          # List all tags; skopeo handles pagination internally.
-          ALL_TAGS=$(skopeo list-tags "docker://${IMAGE}" 2>/dev/null | jq -r '.Tags[]?' 2>/dev/null || true)
-
-          # Extract already-published sc-client versions from matching tags.
-          # Only accept tags of the exact form "{fcliVersion}-ubi9-sc{X.Y}" (no timestamp suffix).
-          EXISTING_VERSIONS=$(echo "$ALL_TAGS" | \
-            grep -E "^${SC_PREFIX}[0-9]+\.[0-9]+$" | \
-            sed "s/^${SC_PREFIX}//" | \
-            sort -uV || true)
-
-          # Normalise explicit input versions (trim whitespace, drop blanks)
-          INPUT_VERSIONS=""
-          if [[ -n "${{ inputs.scClientVersions }}" ]]; then
-            INPUT_VERSIONS=$(echo "${{ inputs.scClientVersions }}" | tr ',' '\n' | \
-              sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$' | sort -uV)
-          fi
-
-          # Decision tree:
-          #  A) input given              → merge input + existing
-          #  B) no input, existing found → refresh existing only
-          #  C) no input, no existing    → bootstrap: parse tool-definitions YAML,
-          #                                take the last 2 YY.Q release groups
-          if [[ -n "$INPUT_VERSIONS" ]]; then
-            # A: merge
-            SC_VERSIONS=$(printf '%s\n%s\n' "$EXISTING_VERSIONS" "$INPUT_VERSIONS" | \
-              sort -uV | grep -v '^$')
-            echo "Using merged sc-client versions (input + existing): $(echo $SC_VERSIONS | tr '\n' ' ')"
-
-          elif [[ -n "$EXISTING_VERSIONS" ]]; then
-            # B: refresh only
-            SC_VERSIONS="$EXISTING_VERSIONS"
-            echo "Refreshing existing sc-client versions: $(echo $SC_VERSIONS | tr '\n' ' ')"
-
-          else
-            # C: bootstrap — fetch tool definitions and pick 2 latest YY.Q groups
-            echo "No existing sc-client images found; bootstrapping from tool definitions..."
-            TOOL_DEF_URL="https://raw.githubusercontent.com/fortify/tool-definitions/refs/heads/main/v1/sc-client.yaml"
-            SC_YAML=$(curl -fsSL "$TOOL_DEF_URL" 2>/dev/null || echo "")
-            if [[ -z "$SC_YAML" ]]; then
-              echo "::warning::Could not fetch sc-client tool definitions; no sc-client images will be built"
-              SC_VERSIONS=""
-            else
-              # Extract all full version strings (e.g. 25.4.0, 25.2.1), strip the patch
-              # component to get the YY.Q group, deduplicate, sort, take the 2 latest.
-              SC_VERSIONS=$(echo "$SC_YAML" | \
-                grep -E '^  - version: [0-9]+\.[0-9]+\.[0-9]+' | \
-                sed 's/.*version: //' | \
-                grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
-                sed 's/\.[0-9]*$//' | \
-                sort -uV | \
-                tail -2)
-              echo "Bootstrapped sc-client versions from tool definitions: $(echo $SC_VERSIONS | tr '\n' ' ')"
-            fi
-          fi
-
-          # Emit as a compact JSON array
-          SC_VERSIONS_JSON=$(echo "$SC_VERSIONS" | grep -v '^$' | \
-            jq -Rcn '[inputs | select(length > 0)]' 2>/dev/null || echo '[]')
-
-          echo "sc_versions=${SC_VERSIONS_JSON}" >> $GITHUB_OUTPUT
-          echo "Final sc-client versions to build: $SC_VERSIONS_JSON"
-
-      - name: Generate matrix based on build inputs
-        id: matrix
-        run: |
-          VARIANTS='[]'
-
-          # Add production variants if enabled (use -c for compact output)
-          if [[ "${{ inputs.buildProduction }}" == "true" ]]; then
-            VARIANTS=$(echo "$VARIANTS" | jq -c '. + [{"name":"scratch","target":"fcli-scratch","suffix":"","latest_suffix":"","sc_client_version":"","base_image":"scratch (statically linked binary)","publish":true}]')
-            VARIANTS=$(echo "$VARIANTS" | jq -c --arg base "${{ inputs.ubiBase }}" '. + [{"name":"ubi9","target":"fcli-ubi9","suffix":"-ubi9","latest_suffix":"-ubi9","sc_client_version":"","base_image":$base,"publish":true}]')
-
-            # Add a ubi9-sc variant for each resolved sc-client version
-            SC_VERSIONS='${{ steps.sc-versions.outputs.sc_versions }}'
-            if [[ -n "$SC_VERSIONS" && "$SC_VERSIONS" != "[]" ]]; then
-              while IFS= read -r SC_VER; do
-                [[ -z "$SC_VER" ]] && continue
-                VARIANTS=$(echo "$VARIANTS" | jq -c \
-                  --arg scv "$SC_VER" \
-                  --arg base "${{ inputs.ubiBase }}" \
-                  '. + [{"name":("ubi9-sc"+$scv),"target":"fcli-ubi9-sc","suffix":("-ubi9-sc"+$scv),"latest_suffix":"","sc_client_version":$scv,"base_image":("fcli-ubi9 + sc-client "+$scv),"publish":true}]')
-              done < <(echo "$SC_VERSIONS" | jq -r '.[]')
-            fi
-          fi
-
-          # Add test variants if enabled
-          if [[ "${{ inputs.buildTest }}" == "true" ]]; then
-            VARIANTS=$(echo "$VARIANTS" | jq -c --arg base "${{ inputs.alpineBase }}" '. + [{"name":"alpine","target":"fcli-alpine","suffix":"-alpine","latest_suffix":"-alpine","sc_client_version":"","base_image":$base,"publish":false}]')
-          fi
-
-          # Check if we have any variants to build
-          VARIANT_COUNT=$(echo "$VARIANTS" | jq 'length')
-          if [[ "$VARIANT_COUNT" -gt 0 ]]; then
-            HAS_VARIANTS="true"
-          else
-            HAS_VARIANTS="false"
-          fi
-
-          echo "matrix={\"variant\":$VARIANTS}" >> $GITHUB_OUTPUT
-          echo "has_variants=$HAS_VARIANTS" >> $GITHUB_OUTPUT
-          echo "Generated Linux matrix with $VARIANT_COUNT variants"
+          RELEASE_TAG: ${{ inputs.releaseTag }}
+          DO_PUBLISH: ${{ inputs.doPublish }}
+          IS_LATEST: ${{ inputs.isLatest }}
+          BUILD_PRODUCTION: ${{ inputs.buildProduction }}
+          BUILD_TEST: ${{ inputs.buildTest }}
+          UBI_BASE: ${{ inputs.ubiBase }}
+          ALPINE_BASE: ${{ inputs.alpineBase }}
+          SC_CLIENT_VERSIONS: ${{ inputs.scClientVersions }}
+          SERVERCORE_VERSIONS: ${{ inputs.servercoreVersions }}
+        run: python3 scripts/release.py
 
   docker-linux:
-    name: Build & Test Linux (${{ matrix.variant.name }})
-    needs: [generate-metadata, generate-linux-matrix]
-    if: ${{ needs.generate-linux-matrix.outputs.has_variants == 'true' }}
+    name: Build and test Linux (${{ matrix.name }})
+    needs: plan
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJson(needs.generate-linux-matrix.outputs.matrix) }}
-    env:
-      DOCKER_SRC: linux
-      REGISTRY: docker.io
-      IMAGE_NAME: ${{ needs.generate-metadata.outputs.image_name }}
+      matrix: ${{ fromJson(needs.plan.outputs.linux_matrix) }}
+      fail-fast: false
     steps:
-      - name: Check-out source code
-        uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
-      
-      - name: Set up Docker Buildx
-        uses: fortify/shared-github/actions/3rdparty/docker/setup-buildx-action/v3@5ad1afec0f56a21b03f0887eea35505cb6a66554
+      - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
         with:
-          driver-opts: |
-            image=moby/buildkit:latest
-      
-      - name: Docker Login
-        if: ${{ inputs.doPublish }}
+          persist-credentials: false
+      - uses: fortify/shared-github/actions/3rdparty/docker/setup-buildx-action/v3@5ad1afec0f56a21b03f0887eea35505cb6a66554
+      - name: Docker login
+        if: ${{ inputs.doPublish && matrix.publish }}
         uses: fortify/shared-github/actions/3rdparty/docker/login-action/v3@5ad1afec0f56a21b03f0887eea35505cb6a66554
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: docker.io
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      
-      - name: Generate tags for ${{ matrix.variant.name }}
-        id: tags
-        run: |
-          VERSION="${{ needs.generate-metadata.outputs.version }}"
-          SUFFIX="${{ matrix.variant.suffix }}"
-          LATEST_SUFFIX="${{ matrix.variant.latest_suffix }}"
-          
-          if [[ "${{ needs.generate-metadata.outputs.is_semantic }}" == "true" ]]; then
-            # Semantic version: generate timestamp and semantic tags
-            TIMESTAMP="${{ needs.generate-metadata.outputs.timestamp }}"
-            MAJOR="${{ needs.generate-metadata.outputs.major }}"
-            MINOR="${{ needs.generate-metadata.outputs.minor }}"
-            
-            # Tags: x.y.z-suffix-timestamp, x.y.z-suffix, x.y-suffix, x-suffix
-            TAGS="${{ env.IMAGE_NAME }}:${VERSION}${SUFFIX}-${TIMESTAMP}"
-            TAGS="${TAGS},${{ env.IMAGE_NAME }}:${VERSION}${SUFFIX}"
-            TAGS="${TAGS},${{ env.IMAGE_NAME }}:${MAJOR}.${MINOR}${SUFFIX}"
-            TAGS="${TAGS},${{ env.IMAGE_NAME }}:${MAJOR}${SUFFIX}"
-            
-            # Add 'latest' tag if explicitly requested (not for sc-client variants)
-            if [[ "${{ inputs.isLatest }}" == "true" && -z "${{ matrix.variant.sc_client_version }}" ]]; then
-              TAGS="${TAGS},${{ env.IMAGE_NAME }}:latest${LATEST_SUFFIX}"
-            fi
-          else
-            # Non-semantic version (including dev_*): only version tag, no timestamp
-            TAGS="${{ env.IMAGE_NAME }}:${VERSION}${SUFFIX}"
-          fi
-          
-          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
-          echo "Generated tags for ${{ matrix.variant.name }}: ${TAGS}"
-      
-      - name: Build and push ${{ matrix.variant.name }}
+      - name: Build image
         uses: fortify/shared-github/actions/3rdparty/docker/build-push-action/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
         with:
-          context: ${{ env.DOCKER_SRC }}
-          file: ${{ env.DOCKER_SRC }}/Dockerfile
-          target: ${{ matrix.variant.target }}
+          context: linux
+          target: ${{ matrix.target }}
           platforms: linux/amd64
-          push: ${{ matrix.variant.publish && inputs.doPublish }}
-          tags: ${{ steps.tags.outputs.tags }}
+          push: ${{ matrix.publish && inputs.doPublish }}
+          tags: ${{ join(matrix.tags, ',') }}
           labels: |
             org.opencontainers.image.source=${{ github.repositoryUrl }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
           build-args: |
-            FCLI_VERSION=${{ inputs.releaseTag }}
-            ALPINE_BASE=${{ inputs.alpineBase }}
-            UBI_BASE=${{ inputs.ubiBase }}
-            CACHE_BUST=${{ needs.generate-metadata.outputs.release_updated_at }}
-            SC_CLIENT_VERSION=${{ matrix.variant.sc_client_version }}
-          provenance: ${{ matrix.variant.publish }}
-          sbom: ${{ matrix.variant.publish }}
-          load: ${{ !matrix.variant.publish || !inputs.doPublish }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
-      - name: Test ${{ matrix.variant.name }} image
+            FCLI_VERSION=${{ needs.plan.outputs.release_tag }}
+            FCLI_SHA256=${{ needs.plan.outputs.linux_sha256 }}
+            ALPINE_BASE=${{ needs.plan.outputs.alpine_base }}
+            UBI_BASE=${{ needs.plan.outputs.ubi_base }}
+            SC_CLIENT_VERSION=${{ matrix.sc_version }}
+          provenance: ${{ matrix.publish }}
+          sbom: ${{ matrix.publish }}
+          load: ${{ !matrix.publish || !inputs.doPublish }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+      - name: Test image
+        env:
+          IMAGE: ${{ matrix.tags[0] }}
+          VARIANT: ${{ matrix.name }}
+          SC_VERSION: ${{ matrix.sc_version }}
         run: |
-          VERSION="${{ needs.generate-metadata.outputs.version }}"
-          SUFFIX="${{ matrix.variant.suffix }}"
-          TAG="${{ env.IMAGE_NAME }}:${VERSION}${SUFFIX}"
-          TEST_DIR="${PWD}/test-${{ matrix.variant.name }}"
+          set -euo pipefail
+          if [[ -n "$SC_VERSION" ]]; then
+            docker run --rm "$IMAGE" sh -c 'test -n "$SC_CLIENT_HOME" && test -x "$SC_CLIENT_HOME/bin/scancentral"'
+          else
+            command=(fcli)
+            [[ "$VARIANT" != scratch ]] || command=()
+            mkdir -p "$PWD/test-data"
+            docker run --rm -u "$(id -u):$(id -g)" -v "$PWD/test-data:/data" \
+              "$IMAGE" "${command[@]}" tool sc-client install
+            test -f "$PWD/test-data/fortify/tools/bin/scancentral"
+          fi
 
-          # Determine command prefix based on variant
-          if [[ "${{ matrix.variant.name }}" == "scratch" ]]; then
-            CMD_PREFIX=""
-          else
-            CMD_PREFIX="fcli"
-          fi
-
-          if [[ -n "${{ matrix.variant.sc_client_version }}" ]]; then
-            # ubi9-sc variant: verify pre-installed sc-client and environment variables
-            docker run --rm "${TAG}" sh -c \
-              'test -n "$SC_CLIENT_HOME" && \
-               test -x "$SC_CLIENT_HOME/bin/scancentral" && \
-               echo "SC_CLIENT_HOME=$SC_CLIENT_HOME" && \
-               echo "SC_CLIENT_CMD=$SC_CLIENT_CMD"'
-          else
-            # Other variants: dynamically install sc-client via fcli and verify
-            mkdir -p "${TEST_DIR}"
-            docker run --rm -u $(id -u):$(id -g) -v "${TEST_DIR}:/data" \
-              "${TAG}" ${CMD_PREFIX} tool sc-client install
-            test -f "${TEST_DIR}/fortify/tools/bin/scancentral"
-          fi
-          echo "✓ ${{ matrix.variant.name }} image test passed"
-      
-      - name: Generate summary for ${{ matrix.variant.name }}
-        if: always()
-        run: |
-          # Determine published status
-          PUBLISHED="${{ matrix.variant.publish && inputs.doPublish }}"
-          if [[ "${PUBLISHED}" == "true" ]]; then
-            PUBLISH_STATUS="✓ Published"
-          else
-            PUBLISH_STATUS="✗ Not Published (test only)"
-          fi
-          
-          echo "### ${{ matrix.variant.name }} image" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Base Image:** \`${{ matrix.variant.base_image }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Target:** \`${{ matrix.variant.target }}\`" >> $GITHUB_STEP_SUMMARY
-          if [[ -n "${{ matrix.variant.sc_client_version }}" ]]; then
-            echo "- **ScanCentral Client:** \`${{ matrix.variant.sc_client_version }}\` (pre-installed with embedded JRE)" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "- **Status:** ${PUBLISH_STATUS}" >> $GITHUB_STEP_SUMMARY
-          
-          # Show generated tags if variant is publishable
-          if [[ "${{ matrix.variant.publish }}" == "true" ]]; then
-            echo "- **Tags:**" >> $GITHUB_STEP_SUMMARY
-            
-            # Parse and display the generated tags (from steps.tags.outputs.tags)
-            TAGS="${{ steps.tags.outputs.tags }}"
-            IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
-            for tag in "${TAG_ARRAY[@]}"; do
-              # Mark timestamp tags as immutable
-              if [[ "$tag" =~ -[0-9]{14}$ ]]; then
-                echo "  - \`${tag}\` (immutable)" >> $GITHUB_STEP_SUMMARY
-              else
-                echo "  - \`${tag}\`" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-  
-  generate-windows-matrix:
-    name: Generate Windows Matrix
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-    steps:
-      - name: Generate matrix from servercoreVersions input
-        id: matrix
-        run: |
-          VERSIONS="${{ inputs.servercoreVersions }}"
-          
-          # Convert comma-separated string to JSON array (compact output)
-          # e.g., "ltsc2022,ltsc2025" -> ["ltsc2022","ltsc2025"]
-          JSON_ARRAY=$(echo "$VERSIONS" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";""))')
-          
-          echo "matrix={\"ltsc\":$JSON_ARRAY}" >> $GITHUB_OUTPUT
-          echo "Generated Windows matrix: $JSON_ARRAY"
-  
-  # Windows images: build only for testing, do not publish
   docker-windows:
-    name: Build Windows Images (Test Only)
-    needs: [generate-metadata, generate-windows-matrix]
+    name: Test Windows (${{ matrix.ltsc }})
+    needs: plan
     if: ${{ inputs.buildTest }}
-    runs-on: windows-${{ matrix.ltsc }}
+    runs-on: ${{ matrix.runner }}
     strategy:
-      matrix: ${{ fromJson(needs.generate-windows-matrix.outputs.matrix) }}
+      matrix: ${{ fromJson(needs.plan.outputs.windows_matrix) }}
       fail-fast: false
-    env:
-      DOCKER_SRC: windows
     steps:
-      - name: Check-out source code
-        uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
-      
-      - name: Build Windows image for ${{ matrix.ltsc }}
+      - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
+        with:
+          persist-credentials: false
+      - name: Build and test Windows image
         shell: pwsh
+        env:
+          LTSC_VERSION: ${{ matrix.ltsc }}
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+          FCLI_SHA256: ${{ needs.plan.outputs.windows_sha256 }}
         run: |
-          cd $env:DOCKER_SRC
-          
-          $ltscVersion = "${{ matrix.ltsc }}"
-          $baseImage = "mcr.microsoft.com/windows/servercore:$ltscVersion"
-          $targetName = "fcli-$ltscVersion"
-          
-          docker build . `
-            --target $targetName `
-            -t fcli-windows:$ltscVersion `
-            --build-arg FCLI_VERSION=${{ inputs.releaseTag }} `
-            --build-arg SERVERCORE_BASE=$baseImage `
-            --build-arg CACHE_BUST=${{ needs.generate-metadata.outputs.release_updated_at }}
-          
-          Write-Host "✓ Windows $ltscVersion image build completed"
-      
-      - name: Test Windows ${{ matrix.ltsc }} image
-        shell: pwsh
-        run: |
-          $ltscVersion = "${{ matrix.ltsc }}"
-          
-          # Basic test: check fcli version
-          docker run --rm fcli-windows:$ltscVersion fcli --version
-          
-          Write-Host "✓ Windows $ltscVersion image test passed"
-          Write-Host "Note: Windows images are built for testing only and are not published"
-      
-      - name: Summary for ${{ matrix.ltsc }}
-        if: always()
-        shell: pwsh
-        run: |
-          $ltscVersion = "${{ matrix.ltsc }}"
-          $baseImage = "mcr.microsoft.com/windows/servercore:$ltscVersion"
-          
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### windows-$ltscVersion image"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Base Image:** ``$baseImage``"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Target:** ``fcli-$ltscVersion``"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Runner:** ``windows-$ltscVersion``"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- **Status:** ✗ Not Published (test only)"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "Windows images are built for testing only and are not published to Docker Hub."
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          $ErrorActionPreference = 'Stop'
+          docker build windows --target "fcli-$env:LTSC_VERSION" `
+            --tag "fcli-windows:$env:LTSC_VERSION" `
+            --build-arg "FCLI_VERSION=$env:RELEASE_TAG" `
+            --build-arg "FCLI_SHA256=$env:FCLI_SHA256" `
+            --build-arg "SERVERCORE_BASE=mcr.microsoft.com/windows/servercore:$env:LTSC_VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          docker run --rm "fcli-windows:$env:LTSC_VERSION" fcli --version
+          exit $LASTEXITCODE
