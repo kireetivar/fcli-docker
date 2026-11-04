@@ -7,8 +7,8 @@
 | Status | Proof of concept (POC): a limited implementation for testing the design |
 | Guide date | 2026-11-01 |
 | fcli release | `v3.29.0` |
-| Local image | `fcli-bulk-audit:3.29.0-poc.2` |
-| Helm chart | `0.2.3` |
+| Local image | `fcli-bulk-audit:0.3.0-rc.1` |
+| Helm chart | `0.3.0-rc.1` |
 | Platform | Linux containers on Intel or AMD 64-bit processors |
 
 This POC does not establish production support for the fcli actions.
@@ -523,7 +523,7 @@ A passing CI result does not close unfixed findings or approve production use.
 For a local scan with Trivy installed, run:
 
 ```powershell
-trivy image --scanners vuln,secret --severity HIGH,CRITICAL fcli-bulk-audit:3.29.0-poc.2
+trivy image --scanners vuln,secret --severity HIGH,CRITICAL fcli-bulk-audit:0.3.0-rc.1
 ```
 
 Review each scan against the exact image digest and current vulnerability database.

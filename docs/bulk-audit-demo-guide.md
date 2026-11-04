@@ -80,8 +80,8 @@ The build does not compile the sibling fcli repository in the parent directory.
 The current POC settings select:
 
 - fcli release: `v3.29.0`.
-- Image: `fcli-bulk-audit:3.29.0-poc.2`.
-- Helm chart: `0.2.3`.
+- Image: `fcli-bulk-audit:0.3.0-rc.1`.
+- Helm chart: `0.3.0-rc.1`.
 - Platform: Linux on Intel or AMD 64-bit processors.
 
 These settings select fixed versions. The build does not automatically select the newest fcli release.

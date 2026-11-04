@@ -1,6 +1,6 @@
 image:
   repository: fcli-bulk-audit
-  tag: 3.29.0-poc.2
+  tag: 0.3.0-rc.1
   digest: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []

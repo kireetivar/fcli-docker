@@ -231,12 +231,14 @@ RUN sed -i 's/\r$//' /tmp/bulk-audit.sh
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal@sha256:d4495d25da60ef3f2d44bc7f6a2dd2ec1646c14414e0dfaaa44dc3ff653e1c2b AS fcli-bulk-audit
 ARG FCLI_VERSION
 ARG FCLI_SHA256
+ARG RUNNER_VERSION=development
 LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit (POC)" \
       org.opencontainers.image.description="One-shot SSC and Aviator bulk-audit runner" \
       org.opencontainers.image.source="https://github.com/fortify/fcli" \
       org.opencontainers.image.vendor="Fortify" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.version="${FCLI_VERSION}" \
+      org.opencontainers.image.version="${RUNNER_VERSION}" \
+      com.fortify.fcli.version="${FCLI_VERSION}" \
       com.fortify.fcli.archive.sha256="${FCLI_SHA256}"
 USER 0:0
 SHELL ["/bin/bash", "-c"]

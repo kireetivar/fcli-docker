@@ -29,12 +29,13 @@ case "${1:-}" in
 esac
 # Read release defaults as data. Do not execute a configuration file.
 defaults=deploy/compose/.env.example
+runner=$(sed -n 's/^RUNNER_VERSION=//p' "$defaults" | tr -d '\r')
 version=${FCLI_VERSION:-$(sed -n 's/^FCLI_VERSION=//p' "$defaults" | tr -d '\r')}
 sha=${FCLI_SHA256:-$(sed -n 's/^FCLI_SHA256=//p' "$defaults" | tr -d '\r')}
 [[ -n $version && $sha =~ ^[a-f0-9]{64}$ ]] || { echo 'Invalid release defaults' >&2; exit 64; }
 for target in fcli-scratch fcli-ubi9 fcli-bulk-audit; do
     docker build --platform linux/amd64 --target "$target" \
-        --build-arg "FCLI_VERSION=$version" --build-arg "FCLI_SHA256=$sha" \
+        --build-arg "RUNNER_VERSION=$runner" --build-arg "FCLI_VERSION=$version" --build-arg "FCLI_SHA256=$sha" \
         -t "fcli-test:$target" "$context"
 done
 docker run --rm --network none fcli-test:fcli-scratch --version

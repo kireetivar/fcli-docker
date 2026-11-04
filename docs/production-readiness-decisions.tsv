@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-11-04T16:10:37.486337+00:00	design	Use thin workflows, small release helpers, and an unchanged OCI artifact for promotion	Avoid rebuilding mutable inputs after tests	scripts/sync-bulk-release.py	Design reviewed by Terra, Sol, and Luna; Sol cross-judge accepted OCI handoff
+2026-11-04T16:10:37.486337+00:00	release identity	Separate runner 0.3.0-rc.1 from bundled fcli v3.29.0 and check generated defaults	The previous image tag could select an incompatible wrapper	tests/test_release_defaults.py	VERIFIED: 2 release checks, 13 deployment tests, Helm lint, Windows-checkout smoke passed
+2026-11-04T16:10:37.486337+00:00	baseline	Verify timeout and signal behavior on Linux	Windows baseline deadline expired before the audit child started	tests/test_bulk_audit.py	VERIFIED: all 21 Linux runner tests passed; Windows timing limitation recorded

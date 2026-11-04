@@ -6,6 +6,7 @@ services:
       context: ../../linux
       target: fcli-bulk-audit
       args:
+        RUNNER_VERSION: ${RUNNER_VERSION:?Set RUNNER_VERSION in .env}
         FCLI_VERSION: ${FCLI_VERSION:?Set FCLI_VERSION in .env}
         FCLI_SHA256: ${FCLI_SHA256:?Set FCLI_SHA256 in .env}
     user: "10001:10001"

@@ -1,10 +1,10 @@
 name: Validate bulk-audit POC
 on:
   pull_request:
-    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', '.github/workflows/bulk-audit.yml']
+    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', 'scripts/**', 'bulk-audit-release.json', '.github/workflows/bulk-audit.yml']
   push:
     branches: [main, kireetivar/bulk-audit-poc]
-    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', '.github/workflows/bulk-audit.yml']
+    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', 'scripts/**', 'bulk-audit-release.json', '.github/workflows/bulk-audit.yml']
   workflow_dispatch:
 
 permissions:
