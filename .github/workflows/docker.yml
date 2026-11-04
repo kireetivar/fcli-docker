@@ -72,6 +72,7 @@ jobs:
       alpine_base: ${{ steps.plan.outputs.alpine_base }}
       linux_matrix: ${{ steps.plan.outputs.linux_matrix }}
       windows_matrix: ${{ steps.plan.outputs.windows_matrix }}
+      publish_matrix: ${{ steps.plan.outputs.publish_matrix }}
     steps:
       - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
         with:
@@ -102,21 +103,17 @@ jobs:
         with:
           persist-credentials: false
       - uses: fortify/shared-github/actions/3rdparty/docker/setup-buildx-action/v3@5ad1afec0f56a21b03f0887eea35505cb6a66554
-      - name: Docker login
-        if: ${{ inputs.doPublish && matrix.publish }}
-        uses: fortify/shared-github/actions/3rdparty/docker/login-action/v3@5ad1afec0f56a21b03f0887eea35505cb6a66554
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Prepare artifact directory
+        run: mkdir -p artifact .cache
       - name: Build image
         uses: fortify/shared-github/actions/3rdparty/docker/build-push-action/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
         with:
           context: linux
           target: ${{ matrix.target }}
           platforms: linux/amd64
-          push: ${{ matrix.publish && inputs.doPublish }}
-          tags: ${{ join(matrix.tags, ',') }}
+          push: false
+          tags: fcli-candidate:${{ matrix.name }}
+          outputs: type=oci,dest=artifact/image.oci.tar
           labels: |
             org.opencontainers.image.source=${{ github.repositoryUrl }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -126,28 +123,40 @@ jobs:
             ALPINE_BASE=${{ needs.plan.outputs.alpine_base }}
             UBI_BASE=${{ needs.plan.outputs.ubi_base }}
             SC_CLIENT_VERSION=${{ matrix.sc_version }}
-          provenance: ${{ matrix.publish }}
-          sbom: ${{ matrix.publish }}
-          load: ${{ !matrix.publish || !inputs.doPublish }}
+          provenance: mode=max
+          sbom: true
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
-      - name: Test image
+      - name: Verify and test the exported runtime image
         env:
-          IMAGE: ${{ matrix.tags[0] }}
+          IMAGE: fcli-candidate:${{ matrix.name }}
           VARIANT: ${{ matrix.name }}
-          SC_VERSION: ${{ matrix.sc_version }}
         run: |
           set -euo pipefail
-          if [[ -n "$SC_VERSION" ]]; then
-            docker run --rm "$IMAGE" sh -c 'test -n "$SC_CLIENT_HOME" && test -x "$SC_CLIENT_HOME/bin/scancentral"'
-          else
-            command=(fcli)
-            [[ "$VARIANT" != scratch ]] || command=()
-            mkdir -p "$PWD/test-data"
-            docker run --rm -u "$(id -u):$(id -g)" -v "$PWD/test-data:/data" \
-              "$IMAGE" "${command[@]}" tool sc-client install
-            test -f "$PWD/test-data/fortify/tools/bin/scancentral"
-          fi
+          skopeo copy --override-os linux --override-arch amd64 \
+            oci-archive:artifact/image.oci.tar "docker-archive:.cache/test-image.tar:$IMAGE"
+          docker load --input .cache/test-image.tar
+          python3 scripts/oci-image.py artifact/image.oci.tar \
+            --docker-archive .cache/test-image.tar --image "$IMAGE" > artifact/identity.json
+          bash scripts/test-release-image.sh "$IMAGE" "$VARIANT"
+      - name: Scan the tested image
+        run: bash scripts/scan-image.sh .cache/test-image.tar reports
+      - name: Retain scan evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: scan-${{ matrix.name }}
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Retain the verified release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-${{ matrix.name }}
+          path: artifact/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   docker-windows:
     name: Test Windows (${{ matrix.ltsc }})
@@ -177,3 +186,47 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           docker run --rm "fcli-windows:$env:LTSC_VERSION" fcli --version
           exit $LASTEXITCODE
+
+  publish:
+    name: Promote verified image (${{ matrix.name }})
+    needs: [plan, docker-linux, docker-windows]
+    if: >-
+      ${{ always() && !cancelled() && inputs.doPublish && inputs.buildProduction &&
+          needs.docker-linux.result == 'success' &&
+          (!inputs.buildTest || needs.docker-windows.result == 'success') }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.plan.outputs.publish_matrix) }}
+      fail-fast: false
+    steps:
+      - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-${{ matrix.name }}
+          path: artifact
+      - name: Verify artifact identity
+        run: |
+          set -euo pipefail
+          python3 scripts/oci-image.py artifact/image.oci.tar > artifact/received.json
+          cmp artifact/identity.json artifact/received.json
+      - name: Docker login
+        uses: fortify/shared-github/actions/3rdparty/docker/login-action/v3@5ad1afec0f56a21b03f0887eea35505cb6a66554
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Promote the original OCI artifact
+        env:
+          TAGS: ${{ join(matrix.tags, ',') }}
+        run: |
+          set -euo pipefail
+          expected=$(jq -r .index_digest artifact/identity.json)
+          IFS=',' read -r -a tags <<< "$TAGS"
+          for tag in "${tags[@]}"; do
+            skopeo copy --all --preserve-digests --digestfile artifact/published.digest \
+              oci-archive:artifact/image.oci.tar "docker://$tag"
+            test "$(cat artifact/published.digest)" = "$expected"
+            printf '%s@%s\n' "${tag%:*}" "$expected" >> "$GITHUB_STEP_SUMMARY"
+          done

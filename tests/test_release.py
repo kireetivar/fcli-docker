@@ -102,6 +102,24 @@ class ReleaseTests(unittest.TestCase):
             for step in job.get('steps', []):
                 self.assertNotIn('${{', step.get('run', ''), step.get('name'))
 
+    def test_only_promotion_job_can_publish_after_all_requested_checks(self):
+        jobs = yaml.safe_load((ROOT / '.github/workflows/docker.yml').read_text())['jobs']
+        publish = jobs['publish']
+        self.assertEqual({'plan', 'docker-linux', 'docker-windows'}, set(publish['needs']))
+        self.assertIn("needs.docker-linux.result == 'success'", publish['if'])
+        self.assertIn("!inputs.buildTest || needs.docker-windows.result == 'success'", publish['if'])
+        self.assertIn('inputs.doPublish', publish['if'])
+        build = next(step for step in jobs['docker-linux']['steps'] if step.get('name') == 'Build image')
+        self.assertIs(False, build['with']['push'])
+        self.assertIn('type=oci', build['with']['outputs'])
+        for name, job in jobs.items():
+            if name != 'publish':
+                self.assertNotIn('secrets.DOCKER_', json.dumps(job))
+        self.assertNotIn('build-push-action', json.dumps(publish))
+        promote = next(step['run'] for step in publish['steps'] if step.get('name') == 'Promote the original OCI artifact')
+        self.assertIn('--all --preserve-digests', promote)
+        self.assertIn('oci-archive:artifact/image.oci.tar', promote)
+
     def test_download_layer_consumes_digest_before_fetching_archive(self):
         linux = (ROOT / 'linux/Dockerfile').read_text()
         download = next(run for run in linux.split('\nRUN ') if 'curl -fsSL "$DOWNLOAD_URL"' in run)

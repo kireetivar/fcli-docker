@@ -117,6 +117,7 @@ def build_plan(inputs, release, published_tags=(), definitions="", timestamp=Non
         "windows_sha256": archive_digest(release, "fcli-windows.zip") if inputs["test"] else "",
         "ubi_base": inputs["ubi"], "alpine_base": inputs["alpine"],
         "linux_matrix": {"include": variants},
+        "publish_matrix": {"include": [v for v in variants if v["publish"]]},
         "windows_matrix": {"include": [
             {"ltsc": ltsc, "runner": "windows-" + ltsc.removeprefix("ltsc")}
             for ltsc in inputs["windows"]
