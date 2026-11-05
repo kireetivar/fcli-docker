@@ -42,7 +42,6 @@ RUN $ErrorActionPreference = 'Stop'; \
     if (-not $env:FCLI_VERSION) { throw 'ERROR: FCLI_VERSION build argument is required' }
 
 # Create temp directory and download fcli with signature
-# Note: CACHE_BUST arg forces re-download for rolling tags when release is updated
 RUN $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; \
     Write-Host \"Cache bust: $env:CACHE_BUST\"; \
     Write-Host "Archive SHA-256: $env:FCLI_SHA256"; \

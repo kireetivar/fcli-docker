@@ -14,7 +14,7 @@ readonly -a ACTION_SPECS=(
 
 if [[ ${1:-} == --help ]]; then
     printf '%s\n' 'Configure this one-shot runner using BULK_AUDIT_*, SSC_URL, AVIATOR_URL and AVIATOR_TENANT.' \
-        'See docs/bulk-audit-poc-guide.md. --check-image checks CLI compatibility without credentials.'
+        'See docs/bulk-audit-guide.md. --check-image checks CLI compatibility without credentials.'
     printf 'Supported actions:'
     for spec in "${ACTION_SPECS[@]}"; do printf ' %s' "${spec%% *}"; done
     printf '\n'

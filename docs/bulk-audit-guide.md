@@ -1,17 +1,14 @@
-# Fortify Bulk Audit: Proof of Concept Guide
+# Install and configure the bulk-audit runner
 
 **Start with a Docker Compose dry run. Review the selected application before one live audit.**
 
 | Item | Value |
 | --- | --- |
-| Status | Proof of concept (POC): a limited implementation for testing the design |
-| Guide date | 2026-11-01 |
-| fcli release | `v3.29.0` |
-| Local image | `fcli-bulk-audit:0.3.0-rc.1` |
-| Helm chart | `0.3.0-rc.1` |
+| Status | Release candidate. Live integration and operational acceptance remain required. |
+| Versions and checksum | [Release metadata](../bulk-audit-release.json) |
 | Platform | Linux containers on Intel or AMD 64-bit processors |
 
-This POC does not establish production support for the fcli actions.
+See the [runbook](bulk-audit-runbook.md) for execution and recovery, and [release maintenance](bulk-audit-release.md) for build verification and unresolved production requirements.
 
 ## 1. Purpose and design
 
@@ -58,7 +55,7 @@ The platform manages cloud access; the audit image contains no AWS client or AWS
 | `audit-dast` | Audit dynamic application security testing (DAST) results. Use eligible WebInspect results. |
 | `sast-dast-correction` | Correlate existing SAST and DAST results using `bulkcorrelate`. |
 
-Only these three runner action names are accepted. `audit-sast` maps to fcli `bulkaudit-sast`; `audit-dast` maps to `bulkaudit-dast`. The requested name `sast-dast-correction` maps to fcli SAST?DAST **correlation**, not remediation. `BULK_AUDIT_MAX_AUDITS` (Helm: `audit.maxAudits`) limits application versions for all three actions: it becomes `--max-correlations` for correlation and `--max-audits` for audits. Existing deployments must replace old `bulkaudit*` configuration values with the new runner names.
+Only these three runner action names are accepted. `audit-sast` maps to fcli `bulkaudit-sast`; `audit-dast` maps to `bulkaudit-dast`. The requested name `sast-dast-correction` maps to fcli SAST and DAST **correlation**, not remediation. `BULK_AUDIT_MAX_AUDITS` (Helm: `audit.maxAudits`) limits application versions for all three actions: it becomes `--max-correlations` for correlation and `--max-audits` for audits. Existing deployments must replace old `bulkaudit*` configuration values with the new runner names.
 
 A **dry run** connects to the servers and previews proposed work without performing the audit.
 A **live audit** can create Aviator applications, prepare SSC tags, consume quota, and change SSC audit results.
@@ -83,7 +80,7 @@ Use a filter to select the intended test application.
 For an existing installation:
 
 1. Preserve the local `.env`, credential files, and Helm values.
-2. Copy the three build settings from `.env.example` into the existing `.env`.
+2. Copy `RUNNER_VERSION`, `FCLI_VERSION`, `FCLI_SHA256`, and `BULK_AUDIT_IMAGE` from `.env.example` into the existing `.env`.
 3. Update the Helm image tag to match the new image.
 4. Remove `job.activeDeadlineSeconds` from existing Helm values.
 5. Rebuild the image and repeat a dry run.
@@ -92,7 +89,7 @@ The chart now calculates the deadline as `audit.timeoutSeconds + job.termination
 The defaults produce a 3660-second Job deadline.
 Use a new image tag after further code changes.
 For releases, prefer an image digest, which identifies exact image content.
-The audit image uses UBI 9 minimal with a pinned base digest in `linux/Dockerfile`.
+The audit image uses Amazon Linux 2023 Minimal with a pinned base digest in `linux/Dockerfile`.
 Update that digest, rebuild, and scan the image when Red Hat publishes security fixes.
 
 ## 3. Docker Compose test
@@ -204,7 +201,7 @@ The runner preserves fcli exit codes and does not retry the audit automatically.
 
 For DAST, select `BULK_AUDIT_ACTION=audit-dast` and suitable WebInspect data.
 Repeat the preview before a live DAST audit.
-For SAST?DAST correlation, select `BULK_AUDIT_ACTION=sast-dast-correction` and an application version with both processed SAST and DAST artifacts.
+For SAST and DAST correlation, select `BULK_AUDIT_ACTION=sast-dast-correction` and an application version with both processed SAST and DAST artifacts.
 
 ## 4. Helm test and scheduling
 
@@ -447,16 +444,14 @@ python -m unittest discover -s tests -v
 helm lint charts/fcli-bulk-audit
 ```
 
-Runner tests need Python 3, Bash, and GNU coreutils.
-On Windows, the tests use Git Bash.
+Use Python 3.11 or later, Bash, and GNU coreutils.
+Run timeout and signal tests on Linux. Git Bash startup on Windows can exceed the short test deadline.
 Deployment tests need Helm and Docker Compose; read skip messages when tools are missing.
 With a running Docker engine, run `bash tests/smoke-images.sh` from Git Bash or Linux Bash.
 Use `bash tests/smoke-images.sh --windows-checkout` to check Windows line endings and file permissions.
 
-All 20 runner tests passed in a Linux container, including the signal test.
-All 12 deployment tests passed.
-Helm lint and ShellCheck passed.
-All three images passed build and container checks for normal and Windows checkout formats.
+The validation workflow runs runner and deployment tests, Helm lint, ShellCheck, and image smoke checks.
+Use the current workflow result or [decision trail](production-readiness-decisions.tsv) for verification evidence.
 The AWS examples need live validation with customer infrastructure.
 This revision still needs a live SSC and Aviator test.
 
@@ -471,70 +466,13 @@ The remaining fcli improvements are:
 - Normalize Aviator token line endings within fcli.
 
 These changes would remove container workarounds and improve scheduler results.
-The POC keeps cloud identity, credential renewal, log retention, and scheduling outside the audit image.
+The runner keeps cloud identity, credential renewal, log retention, and scheduling outside the audit image.
 
-### Security audit: 2026-10-08
+### Security evidence
 
-The audit covered the POC branch changes, deployment templates, credential handling, CI, and the built Linux audit image.
-The reviewed branch started at commit `20f5b2d`.
-Gitleaks 8.30.1 found no secrets in the 19 POC commits reviewed before these fixes.
-Trivy 0.75.0 found no secrets in the tracked source snapshot or the audit image.
-Secret scans do not prove that every possible credential format is absent.
-
-| Change | Reason |
-| --- | --- |
-| Replace the UBI 9.7 standard runtime with pinned UBI 9.8 minimal | Remove unused packages and apply available base-image fixes. |
-| Remove privileged executable permissions | The audit process does not need tools that change user or group identity. |
-| Pass the tenant as `--tenant=value` | Prevent fcli from treating tenant values as argument files or command options. |
-| Disable process core dumps | Crash dumps can contain credentials from process memory. |
-| Include the log directory suffix in `run_id` | Containers can start during the same second with the same process identifier. |
-| Disable stored CI checkout credentials | The build and tests do not need repository credentials after checkout. |
-| Pin the test dependency and scanner images | Dependency updates require a reviewed version change. |
-
-An offline test confirmed that fcli 3.28.0 expands a separate tenant argument starting with `@`.
-The updated runner passes that value literally, and a regression test checks the argument form.
-
-Trivy reported these installed-package findings:
-
-| Severity | Previous audit image | Updated audit image |
-| --- | --- | --- |
-| Critical | 0 | 0 |
-| High | 72 | 13 |
-| Medium | 353 | 116 |
-| Low | 297 | 75 |
-
-The 13 remaining high findings cover seven distinct CVEs across OpenSSL, PCRE2, and util-linux packages.
-The scan lists no fixed package versions for those findings.
-
-| Package family | Open CVEs |
-| --- | --- |
-| util-linux | `CVE-2026-53613` |
-| OpenSSL | `CVE-2026-54876`, `CVE-2026-75804`, `CVE-2026-84782` |
-| PCRE2 | `CVE-2026-103111`, `CVE-2026-86145`, `CVE-2026-89161` |
-
-The scanner marks `CVE-2026-86145` as `will_not_fix`.
-These findings remain open; container restrictions do not prove that the affected code is unreachable.
-The generic `fcli-ubi9` image still uses its original base and needs separate remediation.
-
-CI scans source files for secrets and known dependency vulnerabilities.
-CI reports all high and critical audit-image findings.
-CI fails on critical findings and high findings with available fixes.
-A passing CI result does not close unfixed findings or approve production use.
-For a local scan with Trivy installed, run:
-
-```powershell
-trivy image --scanners vuln,secret --severity HIGH,CRITICAL fcli-bulk-audit:0.3.0-rc.1
-```
-
-Review each scan against the exact image digest and current vulnerability database.
-The image scan does not establish full dependency coverage inside the native fcli executable.
-Obtain an fcli software bill of materials (SBOM), which lists build dependencies, for that review.
-
-The configuration scan also reported default namespace, health-check, archive-copy, and Windows path warnings.
-Use the dedicated namespace from section 4.
-The audit container finishes each run, so a service health check does not apply.
-The existing Dockerfiles use `ADD` to extract local archives; Windows targets use the absolute path `C:/data`.
-The Windows runtime remains outside this Linux POC audit.
+The [historical UBI review](archive/bulk-audit-security-2026-10-08.md), [November 1 scan](bulk-audit-vulnerability-scan-2026-11-01.md), and [provider comparison](base-image-provider-evaluation-2026-11-03.md) record earlier image evaluations.
+Use the current CI scan report and exact image digest for release decisions.
+See [release maintenance](bulk-audit-release.md) for the current scan policy and commands.
 
 Before production use, the platform owner must complete these checks:
 

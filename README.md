@@ -2,11 +2,12 @@
 
 This directory contains Dockerfiles and build configurations for creating fcli Docker images.
 
-## Bulk-audit POC
+## Bulk-audit runner
 
 Read the [demo guide](docs/bulk-audit-demo-guide.md) for a simple explanation, diagrams, and a file reference.
-Use the [temporary runbook](docs/bulk-audit-poc-runbook.md) for a short Docker Compose or Helm test procedure.
-Use the [Bulk Audit POC Guide](docs/bulk-audit-poc-guide.md) for Docker Compose, Helm, credentials, logs, and testing.
+Use the [runbook](docs/bulk-audit-runbook.md) for a short Docker Compose or Helm test procedure.
+Read [release maintenance](docs/bulk-audit-release.md) for verified build stages and remaining production requirements.
+Use the [installation guide](docs/bulk-audit-guide.md) for Docker Compose, Helm, credentials, logs, and testing.
 The container creates fresh sessions from credential files and runs one selected audit action.
 Start with a dry run and review the application scope before a live audit.
 
@@ -18,7 +19,7 @@ Start with a dry run and review the application scope before a live audit.
 - **Base:** `scratch` (minimal, no OS layer)
 - **Size:** ~15-20 MB
 - **Use case:** Single command execution, CI/CD pipelines
-- **Security:** Minimal attack surface, no CVEs from base OS
+- **Security:** No OS packages. Embedded fcli dependencies still need assessment.
 - **Shell:** None (direct fcli entrypoint)
 
 ```bash
@@ -103,13 +104,13 @@ UBI9+ScanCentral Client tags carry a `-ubi9-sc{scVersion}` suffix.
 | `{major}` | Latest release for major version (scratch) | `fortifydocker/fcli:3` |
 | `{major}-ubi9` | Latest release for major version (UBI9) | `fortifydocker/fcli:3-ubi9` |
 | `{major}-ubi9-sc{scVersion}` | Latest release for major version (UBI9+sc-client) | `fortifydocker/fcli:3-ubi9-sc25.4` |
-| `{version}-{timestamp}` | Immutable timestamped tag (scratch) | `fortifydocker/fcli:3.15.0-20260319120000` |
-| `{version}-ubi9-{timestamp}` | Immutable timestamped tag (UBI9) | `fortifydocker/fcli:3.15.0-ubi9-20260319120000` |
-| `{version}-ubi9-sc{scVersion}-{timestamp}` | Immutable timestamped tag (UBI9+sc-client) | `fortifydocker/fcli:3.15.0-ubi9-sc25.4-20260319120000` |
+| `{version}-{timestamp}` | Timestamped build tag (scratch) | `fortifydocker/fcli:3.15.0-20260319120000` |
+| `{version}-ubi9-{timestamp}` | Timestamped build tag (UBI9) | `fortifydocker/fcli:3.15.0-ubi9-20260319120000` |
+| `{version}-ubi9-sc{scVersion}-{timestamp}` | Timestamped build tag (UBI9+sc-client) | `fortifydocker/fcli:3.15.0-ubi9-sc25.4-20260319120000` |
 
 > **Note on ScanCentral Client versions:** `{scVersion}` is in `YY.Q` form (e.g., `25.4`).
 > The image contains the latest available patch release within that quarter at the time it was
-> built. Timestamped tags are immutable; the floating `{version}` and `{major}.{minor}` tags
+> built. Use image digests for immutable deployments. The floating `{version}` and `{major}.{minor}` tags
 > are updated when images are refreshed (e.g., for base-image CVE fixes).
 
 ## Building Locally
@@ -407,9 +408,9 @@ The `.github/workflows/docker.yml` workflow provides:
 
 - **Automated builds:** Triggered via workflow_dispatch
 - **Multi-image support:** Builds scratch, UBI9, UBI9+ScanCentral Client (multiple sc-client versions), Alpine (test), and Windows (test)
-- **Signature verification:** Built into Dockerfile
+- **Archive verification:** Release builds require GitHub asset SHA-256 metadata and verify the Fortify signature.
 - **Automated testing:** Tests tool installation in each image; verifies pre-installed sc-client and env vars in ubi9-sc variants
-- **SBOM generation:** Provenance and SBOM attestation
+- **Artifact promotion:** Tests and scans run before publication. The original OCI archive retains its SBOM and provenance. See [release maintenance](docs/bulk-audit-release.md).
 - **Base image updates:** Support for republishing with updated base images
 - **Selective publishing:** Publishes scratch, UBI9 and UBI9+sc-client variants to Docker Hub
 - **Automatic sc-client version detection:**
@@ -466,7 +467,7 @@ Base images should be updated periodically for security patches:
      -f doPublish=true \
      -f ubiBase=redhat/ubi9:9.8
    ```
-   This creates new immutable timestamped tags (e.g., `3.15.0-20260401120000`,
+   This creates new timestamped tags (e.g., `3.15.0-20260401120000`,
    `3.15.0-ubi9-20260401120000`, `3.15.0-ubi9-sc25.4-20260401120000`) while also
    updating the floating `3.15.0`, `3.15`, and `3` tags to the refreshed images.
 

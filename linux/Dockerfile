@@ -97,7 +97,6 @@ RUN case "$TARGETPLATFORM" in \
     echo "$ARCHIVE" > /tmp/archive_name
 
 # Download fcli and signature
-# Note: CACHE_BUST arg forces re-download for rolling tags when release is updated
 RUN echo "Archive SHA-256: ${FCLI_SHA256}; cache bust: ${CACHE_BUST}" && \
     ARCHIVE=$(cat /tmp/archive_name) && \
     DOWNLOAD_URL="https://github.com/fortify/fcli/releases/download/${FCLI_VERSION}/${ARCHIVE}" && \

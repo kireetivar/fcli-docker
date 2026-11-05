@@ -1,10 +1,10 @@
-# Bulk Audit POC: Demo Guide
+# Bulk-audit design walkthrough
 
 This project packages fcli so customers can run a Fortify bulk audit with consistent settings.
 Use Docker Compose on one computer. Use the Helm chart on a Kubernetes cluster.
 Both methods run the same audit image.
 
-POC means proof of concept. This project demonstrates the design before production approval.
+This walkthrough explains the original PoC design. Use the [installation guide](bulk-audit-guide.md) and [runbook](bulk-audit-runbook.md) as the authoritative operational instructions.
 This guide describes the repository on 2026-11-01.
 
 ## 1. What problem does this project solve?
@@ -35,7 +35,7 @@ This POC audits existing results. The POC does not build application code or sta
 | `audit-dast` | Audit DAST results. |
 | `sast-dast-correction` | Correlate existing SAST and DAST results using `bulkcorrelate`. |
 
-Only these three runner action names are accepted. `audit-sast` maps to fcli `bulkaudit-sast`; `audit-dast` maps to `bulkaudit-dast`. The requested name `sast-dast-correction` maps to fcli SAST?DAST **correlation**, not remediation. `BULK_AUDIT_MAX_AUDITS` (Helm: `audit.maxAudits`) limits application versions for all three actions: it becomes `--max-correlations` for correlation and `--max-audits` for audits. Existing deployments must replace old `bulkaudit*` configuration values with the new runner names.
+Only these three runner action names are accepted. `audit-sast` maps to fcli `bulkaudit-sast`; `audit-dast` maps to `bulkaudit-dast`. The requested name `sast-dast-correction` maps to fcli SAST and DAST **correlation**, not remediation. `BULK_AUDIT_MAX_AUDITS` (Helm: `audit.maxAudits`) limits application versions for all three actions: it becomes `--max-correlations` for correlation and `--max-audits` for audits. Existing deployments must replace old `bulkaudit*` configuration values with the new runner names.
 
 ## 2. What do Docker, Compose, Kubernetes, and Helm do?
 
@@ -77,7 +77,7 @@ The Dockerfile downloads a released fcli binary and verifies its publisher signa
 The Compose build also supplies an archive checksum to verify the expected download.
 The build does not compile the sibling fcli repository in the parent directory.
 
-The current POC settings select:
+The release-candidate defaults are recorded in [release metadata](../bulk-audit-release.json). This walkthrough uses:
 
 - fcli release: `v3.29.0`.
 - Image: `fcli-bulk-audit:0.3.0-rc.1`.
@@ -311,8 +311,8 @@ Local automated tests do not prove that customer credentials, service connection
 | `windows/.gitignore` | Excludes a local `fcli.exe` from Git. |
 | `README.md` | Introduces the repository and links to POC instructions. |
 | `docs/bulk-audit-demo-guide.md` | This explanation for preparing and presenting the demo. |
-| `docs/bulk-audit-poc-runbook.md` | Short PowerShell procedures for Compose and Helm execution. |
-| `docs/bulk-audit-poc-guide.md` | Detailed setup, integrations, troubleshooting, security audit, and remaining work. |
+| `docs/bulk-audit-runbook.md` | Short PowerShell procedures for Compose and Helm execution. |
+| `docs/bulk-audit-guide.md` | Detailed setup, integrations, troubleshooting, security audit, and remaining work. |
 | `FCLI_REPO_CHANGES.md` | Historical instructions for moving Docker work out of the main fcli repository. |
 | `IMPLEMENTATION_SUMMARY.md` | Historical notes about creating this separate repository. |
 | `.gitignore` | Excludes local credentials, logs, settings, and generated files from Git. |
@@ -343,7 +343,7 @@ Git ignore rules do not protect file permissions. The computer owner must restri
 4. Prepare the three credentials without displaying their contents.
 5. Select one small test application through the filter.
 6. Keep the dry-run setting enabled and the audit limit at `1`.
-7. Follow the [temporary runbook](bulk-audit-poc-runbook.md) for the setup commands.
+7. Follow the [runbook](bulk-audit-runbook.md) for the setup commands.
 
 For Helm, use your existing Rancher Desktop Kubernetes cluster or another prepared test cluster.
 The cluster must have access to the audit image.
@@ -426,7 +426,7 @@ Read the action output to check the audit result.
    Uninstalling removes the Job and its Pods. Default diagnostic storage disappears with the Pod.
    The separately created credential Secret, namespace, image, and local values remain available.
    The saved console output does not include every diagnostic file.
-   Export required diagnostic files before uninstalling, as described in the [POC guide](bulk-audit-poc-guide.md).
+   Export required diagnostic files before uninstalling, as described in the [installation guide](bulk-audit-guide.md).
 
 4. Repeat the Helm demonstration commands above to create a fresh dry-run Job.
 
@@ -457,7 +457,7 @@ The runner disables core dumps, limits execution time, and removes temporary ses
 The POC still has limits:
 
 - fcli can return exit code `0` after individual audit failures.
-- The recorded security audit found unresolved image vulnerabilities. Review the [detailed guide](bulk-audit-poc-guide.md) and a current image scan.
+- Dated security reports describe historical images. Review the current CI report for the exact image you plan to deploy.
 - The customer must verify credential renewal, network access, and log retention.
 - AWS integration examples require testing in the customer's AWS environment.
 - The customer must validate unattended scheduling before enabling production audits.

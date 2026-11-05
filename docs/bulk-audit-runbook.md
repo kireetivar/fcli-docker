@@ -1,4 +1,7 @@
-# Bulk Audit POC: Temporary Runbook
+# Operate the bulk-audit runner
+
+Complete the [installation guide](bulk-audit-guide.md) before a live run.
+This runbook covers release-candidate validation. Production acceptance requirements are listed in [release maintenance](bulk-audit-release.md).
 
 Use Docker Compose for one computer. Use Helm for a Kubernetes cluster.
 Choose one method for the live test to avoid auditing the same application twice.
@@ -179,4 +182,18 @@ Use this procedure after the initial setup. Run commands in PowerShell from the 
 - Review SSC before repeating a failed or interrupted live audit.
 - Save logs before replacing containers or deleting Jobs.
 
-Use the [POC guide](bulk-audit-poc-guide.md) for private certificates, AWS secrets, CloudWatch, scheduling, and troubleshooting.
+Use the [installation guide](bulk-audit-guide.md) for private certificates, AWS secrets, CloudWatch, scheduling, and troubleshooting.
+
+
+## Recover from a failed or interrupted run
+
+1. Stop new launches for the affected application scope. Keep a CronJob suspended while investigating.
+2. Save console output and the run's diagnostic directory before removing the Pod or container storage.
+3. Check the failing phase and inspect SSC and Aviator for work that already completed.
+4. Decide the next application scope from that service state. Do not assume that a nonzero exit means no remote work occurred.
+5. Run a preview before retrying the reviewed scope. Keep automatic retries disabled until repeat-execution behavior has been validated.
+
+A zero exit means the fcli process completed successfully. It does not prove that every application audit succeeded.
+Review individual results in SSC. Use the run identifier to correlate console events and diagnostic files.
+Docker console-log rotation does not rotate diagnostic files in `/logs`.
+The storage owner must manage diagnostic-file capacity and retention.
