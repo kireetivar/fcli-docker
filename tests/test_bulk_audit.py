@@ -32,11 +32,12 @@ if [[ ${1:-} == --version ]]; then echo 'fcli test double'; exit 0; fi
 if [[ "${1:-} ${2:-} ${3:-}" == 'ssc action help' ]]; then
     [[ ${MOCK_INCOMPATIBLE:-false} != true ]] || exit 2
     case "$4" in
-        bulkaudit-sast) echo '--dry-run --max-audits --filter --exclude-filter --add-aviator-tags' ;;
-        bulkaudit-dast) echo '--dry-run --max-audits --filter --exclude-filter' ;;
-        bulkcorrelate) echo '--dry-run --max-correlations --filter --exclude-filter' ;;
+        bulkaudit-sast) help='--dry-run --max-audits --filter --exclude-filter --add-aviator-tags' ;;
+        bulkaudit-dast) help='--dry-run --max-audits --filter --exclude-filter' ;;
+        bulkcorrelate) help='--dry-run --max-correlations --filter --exclude-filter' ;;
         *) exit 2 ;;
     esac
+    printf '%s\n' "${help//${MOCK_MISSING_OPTION:-__none__}/}"
     exit 0
 fi
 printf '10:11:38.600 [main] INFO FCLI -- mock %s diagnostic\n' "${1:-}" > "$FCLI_DEFAULT_LOG_FILE"
@@ -333,6 +334,24 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn('image_compatible', result.stderr)
         self.assertNotIn('session\nlogin', self.calls())
+
+    def test_help_and_helm_accept_exactly_the_same_public_actions(self):
+        result = self.run_runner('--help')
+        self.assertEqual(0, result.returncode, result.stderr)
+        supported = next(line for line in result.stdout.splitlines()
+                         if line.startswith('Supported actions:')).split(':', 1)[1].split()
+        schema = json.loads((ROOT / 'charts/fcli-bulk-audit/values.schema.json').read_text())
+        self.assertEqual(set(schema['properties']['audit']['properties']['action']['enum']), set(supported))
+        self.assertEqual('', self.calls())
+
+    def test_image_check_rejects_missing_options_for_each_action(self):
+        for option in ('--dry-run', '--max-audits', '--max-correlations', '--filter',
+                       '--exclude-filter', '--add-aviator-tags'):
+            with self.subTest(option=option):
+                result = self.run_runner('--check-image', MOCK_MISSING_OPTION=option)
+                self.assertEqual(69, result.returncode, result.stderr)
+                self.assertIn('incompatible_image', result.stderr)
+                self.assertNotIn('session\nlogin', self.calls())
 
     def test_incompatible_image_fails(self):
         result = self.run_runner('--check-image', MOCK_INCOMPATIBLE="true")

@@ -6,9 +6,18 @@ umask 077
 # Core dumps can contain credentials from process memory.
 ulimit -c 0
 
+readonly -a ACTION_SPECS=(
+    'audit-sast bulkaudit-sast --max-audits --add-aviator-tags'
+    'audit-dast bulkaudit-dast --max-audits'
+    'sast-dast-correction bulkcorrelate --max-correlations'
+)
+
 if [[ ${1:-} == --help ]]; then
     printf '%s\n' 'Configure this one-shot runner using BULK_AUDIT_*, SSC_URL, AVIATOR_URL and AVIATOR_TENANT.' \
         'See docs/bulk-audit-poc-guide.md. --check-image checks CLI compatibility without credentials.'
+    printf 'Supported actions:'
+    for spec in "${ACTION_SPECS[@]}"; do printf ' %s' "${spec%% *}"; done
+    printf '\n'
     exit 0
 fi
 if (( $# > 1 )) || { (( $# == 1 )) && [[ $1 != --check-image ]]; }; then
@@ -88,33 +97,38 @@ prepare_session() {
     cd "$scratch_dir"
 }
 
-check_image() {
-    local candidate help_text required limit_option
-    fcli --version
-    for candidate in bulkaudit-sast bulkaudit-dast bulkcorrelate; do
-        help_text=$(fcli ssc action help "$candidate" 2>&1) || {
-            event incompatible_image "$candidate"; return 69;
-        }
-        limit_option=--max-audits
-        [[ $candidate != bulkcorrelate ]] || limit_option=--max-correlations
-        for required in --dry-run "$limit_option" --filter --exclude-filter; do
-            [[ $help_text == *"$required"* ]] || { event incompatible_image "$candidate"; return 69; }
-        done
-        if [[ $candidate == bulkaudit-sast && $help_text != *--add-aviator-tags* ]]; then
-            event incompatible_image "$candidate"; return 69
+select_action() {
+    local spec
+    for spec in "${ACTION_SPECS[@]}"; do
+        if [[ ${spec%% *} == "$1" ]]; then
+            read -r fcli_action limit_option tag_option <<< "${spec#* }"
+            return 0
         fi
+    done
+    return 1
+}
+
+check_image() {
+    local spec help_text required fcli_action limit_option tag_option
+    local -a required_options
+    fcli --version
+    for spec in "${ACTION_SPECS[@]}"; do
+        select_action "${spec%% *}"
+        help_text=$(fcli ssc action help "$fcli_action" 2>&1) || {
+            event incompatible_image "$fcli_action"; return 69;
+        }
+        required_options=(--dry-run "$limit_option" --filter --exclude-filter)
+        if [[ -n $tag_option ]]; then required_options+=("$tag_option"); fi
+        for required in "${required_options[@]}"; do
+            [[ $help_text == *"$required"* ]] || { event incompatible_image "$fcli_action"; return 69; }
+        done
     done
     event image_compatible
 }
 
 validate_config() {
     local name value
-    case "$action" in
-        audit-sast) fcli_action=bulkaudit-sast; limit_option=--max-audits ;;
-        audit-dast) fcli_action=bulkaudit-dast; limit_option=--max-audits ;;
-        sast-dast-correction) fcli_action=bulkcorrelate; limit_option=--max-correlations ;;
-        *) fail invalid_action ;;
-    esac
+    select_action "$action" || fail invalid_action
     case "$dry_run" in true|false) ;; *) fail invalid_dry_run ;; esac
     ssc_insecure=${SSC_INSECURE:-false}
     case "$ssc_insecure" in true|false) ;; *) fail invalid_ssc_insecure ;; esac
@@ -223,7 +237,7 @@ main() {
     args=(ssc action run "$fcli_action" "--dry-run=$dry_run" "$limit_option=$max_audits" --progress=simple)
     # Omit blank filters so fcli uses its default of no inclusion filtering.
     if [[ -n ${filter//[[:space:]]/} ]]; then args+=("--filter=$filter"); fi
-    if [[ $action == audit-sast ]]; then args+=(--add-aviator-tags); fi
+    if [[ -n $tag_option ]]; then args+=("$tag_option"); fi
     if [[ -n ${BULK_AUDIT_EXCLUDE_FILTER:-} ]]; then args+=("--exclude-filter=$BULK_AUDIT_EXCLUDE_FILTER"); fi
     run_cli audit "${args[@]}"
     event result_notice process_exit_does_not_guarantee_all_audits_succeeded
