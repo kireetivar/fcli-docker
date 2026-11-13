@@ -1,0 +1,20 @@
+# Optional: docker compose -f compose.yaml -f compose.truststore.yaml ...
+services:
+  bulk-audit:
+    environment:
+      FCLI_TRUSTSTORE: /run/truststore/store
+      FCLI_TRUSTSTORE_TYPE: ${FCLI_TRUSTSTORE_TYPE:-JKS}
+      FCLI_TRUSTSTORE_PWD_FILE: /run/secrets/truststore-password
+    volumes:
+      - type: bind
+        source: ./certs/truststore.jks
+        target: /run/truststore/store
+        read_only: true
+        bind:
+          create_host_path: false
+    secrets:
+      - source: truststore-password
+        target: truststore-password
+secrets:
+  truststore-password:
+    file: ./secrets/truststore-password

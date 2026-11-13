@@ -1,5 +1,9 @@
 # Implementation Summary: fcli-docker Repository Setup
 
+This file records the original move out of the fcli repository. It is not the current install or security guide.
+Use [the install guide](docs/bulk-audit-guide.md) and [release maintenance](docs/bulk-audit-release.md).
+The sample image tags and workflow inputs below are not current.
+
 ## Overview
 
 This document summarizes the successful migration of Docker image build configuration from the main `fortify/fcli` repository to this standalone `fortify/fcli-docker` repository.

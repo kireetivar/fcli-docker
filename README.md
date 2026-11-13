@@ -2,6 +2,15 @@
 
 This directory contains Dockerfiles and build configurations for creating fcli Docker images.
 
+## Bulk-audit runner
+
+Read the [demo guide](docs/bulk-audit-demo-guide.md) for a simple explanation, diagrams, and a file reference.
+Use the [runbook](docs/bulk-audit-runbook.md) for a short Docker Compose or Helm test procedure.
+Read [release maintenance](docs/bulk-audit-release.md) for verified build stages and remaining production requirements.
+Use the [installation guide](docs/bulk-audit-guide.md) for Docker Compose, Helm, credentials, logs, and testing.
+The container creates fresh sessions from credential files and runs one selected audit action.
+Start with a dry run and review the application scope before a live audit.
+
 ## Available Images
 
 ### Published Images (Docker Hub: `fortifydocker/fcli`)
@@ -10,7 +19,7 @@ This directory contains Dockerfiles and build configurations for creating fcli D
 - **Base:** `scratch` (minimal, no OS layer)
 - **Size:** ~15-20 MB
 - **Use case:** Single command execution, CI/CD pipelines
-- **Security:** Minimal attack surface, no CVEs from base OS
+- **Security:** No OS packages. Embedded fcli dependencies still need assessment.
 - **Shell:** None (direct fcli entrypoint)
 
 ```bash
@@ -95,20 +104,20 @@ UBI9+ScanCentral Client tags carry a `-ubi9-sc{scVersion}` suffix.
 | `{major}` | Latest release for major version (scratch) | `fortifydocker/fcli:3` |
 | `{major}-ubi9` | Latest release for major version (UBI9) | `fortifydocker/fcli:3-ubi9` |
 | `{major}-ubi9-sc{scVersion}` | Latest release for major version (UBI9+sc-client) | `fortifydocker/fcli:3-ubi9-sc25.4` |
-| `{version}-{timestamp}` | Immutable timestamped tag (scratch) | `fortifydocker/fcli:3.15.0-20260319120000` |
-| `{version}-ubi9-{timestamp}` | Immutable timestamped tag (UBI9) | `fortifydocker/fcli:3.15.0-ubi9-20260319120000` |
-| `{version}-ubi9-sc{scVersion}-{timestamp}` | Immutable timestamped tag (UBI9+sc-client) | `fortifydocker/fcli:3.15.0-ubi9-sc25.4-20260319120000` |
+| `{version}-{timestamp}` | Timestamped build tag (scratch) | `fortifydocker/fcli:3.15.0-20260319120000` |
+| `{version}-ubi9-{timestamp}` | Timestamped build tag (UBI9) | `fortifydocker/fcli:3.15.0-ubi9-20260319120000` |
+| `{version}-ubi9-sc{scVersion}-{timestamp}` | Timestamped build tag (UBI9+sc-client) | `fortifydocker/fcli:3.15.0-ubi9-sc25.4-20260319120000` |
 
 > **Note on ScanCentral Client versions:** `{scVersion}` is in `YY.Q` form (e.g., `25.4`).
 > The image contains the latest available patch release within that quarter at the time it was
-> built. Timestamped tags are immutable; the floating `{version}` and `{major}.{minor}` tags
+> built. Use image digests for immutable deployments. The floating `{version}` and `{major}.{minor}` tags
 > are updated when images are refreshed (e.g., for base-image CVE fixes).
 
 ## Building Locally
 
 ### Prerequisites
 - Docker 20.10+ or Docker Desktop
-- Docker Buildx (for multi-platform builds)
+- Docker Buildx (default builder in current Docker). Linux images build for `linux/amd64` only: the fcli release publishes a single Linux (x86_64) archive, and the build refuses other platforms.
 
 ### Linux Images
 
@@ -140,11 +149,11 @@ docker build . \
   --target fcli-alpine \
   -t fcli:alpine
 
-# Build with custom base images
+# Build with pinned base images (this is the default; shown here to demonstrate overriding)
 docker build . \
   --build-arg FCLI_VERSION=v3.15.0 \
-  --build-arg ALPINE_BASE=alpine:3.23.0 \
-  --build-arg UBI_BASE=redhat/ubi9:9.7 \
+  --build-arg ALPINE_BASE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 \
+  --build-arg UBI_BASE=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e \
   --target fcli-scratch \
   -t fcli:scratch
 ```
@@ -381,9 +390,13 @@ docker inspect fortifydocker/fcli:latest | jq '.[0].Config.Labels'
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `FCLI_VERSION` | Yes | - | fcli release tag (e.g., `v3.15.0`) |
-| `ALPINE_BASE` | No | `alpine:3.23.0` | Alpine base image for downloader and alpine target |
-| `UBI_BASE` | No | `redhat/ubi9:9.7` | Red Hat UBI9 standard base image (not minimal) |
+| `ALPINE_BASE` | No | `alpine:3.23.4@sha256:5b10f…` | Alpine base image for downloader and alpine target (default is digest-pinned) |
+| `UBI_BASE` | No | `redhat/ubi9:9.8@sha256:1963e…` | Red Hat UBI9 standard base image, not minimal (default is digest-pinned) |
 | `SC_CLIENT_VERSION` | Required for `fcli-ubi9-sc` target | - | ScanCentral Client version to pre-install (e.g., `25.4`); resolved to latest patch release at build time |
+| `ALLOW_STALE_TOOL_DEFINITIONS` | No | `false` | Set to `true` to let the `fcli-ubi9-sc` build fall back to the tool definitions bundled with fcli when `fcli tool definitions update` fails; by default the build fails instead of risking an outdated sc-client selection |
+
+> The default `ALPINE_BASE` and `UBI_BASE` values (and the workflow input defaults) are pinned by digest.
+> When refreshing base images, update tag and digest together in both `linux/Dockerfile` and `.github/workflows/docker.yml`.
 
 ### Windows Dockerfile
 
@@ -399,9 +412,9 @@ The `.github/workflows/docker.yml` workflow provides:
 
 - **Automated builds:** Triggered via workflow_dispatch
 - **Multi-image support:** Builds scratch, UBI9, UBI9+ScanCentral Client (multiple sc-client versions), Alpine (test), and Windows (test)
-- **Signature verification:** Built into Dockerfile
+- **Archive verification:** Release builds require GitHub asset SHA-256 metadata and verify the Fortify signature.
 - **Automated testing:** Tests tool installation in each image; verifies pre-installed sc-client and env vars in ubi9-sc variants
-- **SBOM generation:** Provenance and SBOM attestation
+- **Artifact promotion:** Tests and scans run before publication. The original OCI archive retains its SBOM and provenance. See [release maintenance](docs/bulk-audit-release.md).
 - **Base image updates:** Support for republishing with updated base images
 - **Selective publishing:** Publishes scratch, UBI9 and UBI9+sc-client variants to Docker Hub
 - **Automatic sc-client version detection:**
@@ -412,11 +425,11 @@ The `.github/workflows/docker.yml` workflow provides:
 ### Triggering Builds
 
 ```bash
-# Via GitHub CLI — initial publish or full refresh
+# Via GitHub CLI — initial publish or full refresh (overrides the pinned default ubiBase)
 gh workflow run docker.yml \
   -f releaseTag=v3.15.0 \
   -f doPublish=true \
-  -f ubiBase=redhat/ubi9:9.7
+  -f ubiBase=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
 
 # Refresh existing images only (sc-client versions auto-detected from published tags)
 gh workflow run docker.yml \
@@ -444,21 +457,21 @@ Base images should be updated periodically for security patches:
    ```bash
    docker build . \
      --build-arg FCLI_VERSION=v3.14.0 \
-     --build-arg ALPINE_BASE=alpine:3.23.0 \
-     --build-arg UBI_BASE=redhat/ubi9:9.7 \
+     --build-arg ALPINE_BASE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 \
+     --build-arg UBI_BASE=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e \
      --target fcli-scratch
    ```
 
-3. **Update defaults in Dockerfile** or **trigger workflow with custom bases**
+3. **Update the tag and digest together** in `linux/Dockerfile` and the workflow input defaults in `.github/workflows/docker.yml`
 
 4. **Republish existing fcli version** with updated base images:
    ```bash
    gh workflow run docker.yml \
      -f releaseTag=v3.15.0 \
      -f doPublish=true \
-     -f ubiBase=redhat/ubi9:9.8
+     -f ubiBase=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
    ```
-   This creates new immutable timestamped tags (e.g., `3.15.0-20260401120000`,
+   This creates new timestamped tags (e.g., `3.15.0-20260401120000`,
    `3.15.0-ubi9-20260401120000`, `3.15.0-ubi9-sc25.4-20260401120000`) while also
    updating the floating `3.15.0`, `3.15`, and `3` tags to the refreshed images.
 

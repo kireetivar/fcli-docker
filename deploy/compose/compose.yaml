@@ -1,0 +1,62 @@
+services:
+  bulk-audit:
+    image: ${BULK_AUDIT_IMAGE:?Set BULK_AUDIT_IMAGE in .env}
+    platform: linux/amd64
+    build:
+      context: ../../linux
+      target: fcli-bulk-audit
+      args:
+        RUNNER_VERSION: ${RUNNER_VERSION:?Set RUNNER_VERSION in .env}
+        FCLI_VERSION: ${FCLI_VERSION:?Set FCLI_VERSION in .env}
+        FCLI_SHA256: ${FCLI_SHA256:?Set FCLI_SHA256 in .env}
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    stop_grace_period: 45s
+    cpus: 2.0
+    mem_limit: &bulk_memory 4g
+    memswap_limit: *bulk_memory
+    pids_limit: 256
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
+    volumes:
+      - audit-logs:/logs
+    tmpfs:
+      - /work:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700
+      - /tmp:rw,nosuid,nodev,size=1g,uid=10001,gid=10001,mode=0700
+    environment:
+      SSC_URL: ${SSC_URL:?Set SSC_URL in .env}
+      SSC_INSECURE: ${SSC_INSECURE:-false}
+      AVIATOR_URL: ${AVIATOR_URL:?Set AVIATOR_URL in .env}
+      AVIATOR_TENANT: ${AVIATOR_TENANT:?Set AVIATOR_TENANT in .env}
+      BULK_AUDIT_FILTER: ${BULK_AUDIT_FILTER:-}
+      BULK_AUDIT_ACTION: ${BULK_AUDIT_ACTION:-audit-sast}
+      BULK_AUDIT_DRY_RUN: ${BULK_AUDIT_DRY_RUN:-true}
+      BULK_AUDIT_MAX_AUDITS: ${BULK_AUDIT_MAX_AUDITS:-1}
+      BULK_AUDIT_TIMEOUT_SECONDS: ${BULK_AUDIT_TIMEOUT_SECONDS:-3600}
+      BULK_AUDIT_EXCLUDE_FILTER: ${BULK_AUDIT_EXCLUDE_FILTER:-}
+    secrets:
+      - ssc-token
+      - aviator-token
+      - aviator-private-key
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  audit-logs:
+
+secrets:
+  ssc-token:
+    file: ${SSC_TOKEN_SOURCE:-./secrets/ssc-token}
+  aviator-token:
+    file: ${AVIATOR_TOKEN_SOURCE:-./secrets/aviator-token}
+  aviator-private-key:
+    file: ${AVIATOR_PRIVATE_KEY_SOURCE:-./secrets/aviator-private-key}

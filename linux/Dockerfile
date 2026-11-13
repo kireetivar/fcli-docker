@@ -33,9 +33,12 @@
 # 
 # Build Arguments:
 # - FCLI_VERSION:       fcli version to download (required, e.g., "v3.14.0")
-# - ALPINE_BASE:        Alpine base image (default: alpine:3.23.0)
-# - UBI_BASE:           Red Hat UBI base image (default: redhat/ubi9:9.7)
+# - ALPINE_BASE:        Alpine base image (default: alpine:3.23.4, digest-pinned)
+# - UBI_BASE:           Red Hat UBI base image (default: redhat/ubi9:9.8, digest-pinned)
+# - AMAZON_LINUX_BASE:  Amazon Linux 2023 minimal base for the bulk-audit target (digest-pinned)
 # - SC_CLIENT_VERSION:  ScanCentral Client version to install (required for fcli-ubi9-sc target)
+# - ALLOW_STALE_TOOL_DEFINITIONS: set to "true" to fall back to the fcli bundled tool
+#                       definitions when 'fcli tool definitions update' fails (default: false)
 #
 # All of the targets defined below have more or less the same structure:
 # - Add fcli user to /etc/passwd
@@ -54,14 +57,15 @@
 # ============================================================================
 # Global build arguments (must be before any FROM to use in FROM statements)
 # ============================================================================
-ARG ALPINE_BASE=alpine:3.23.0
-ARG UBI_BASE=redhat/ubi9:9.7
+ARG ALPINE_BASE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+ARG UBI_BASE=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
+ARG AMAZON_LINUX_BASE=public.ecr.aws/amazonlinux/amazonlinux:2023-minimal@sha256:158a9044f9dc0777f098b76c8b54346f6ed4560b9a6a416dec7a5ba3bc483af4
 
 # ============================================================================
 # Stage: fcli-downloader
 # Downloads fcli binary and verifies signature
 # ============================================================================
-FROM alpine:3.23.0 AS fcli-downloader
+FROM ${ALPINE_BASE} AS fcli-downloader
 
 # Install dependencies for download and signature verification
 RUN apk add --no-cache curl openssl ca-certificates
@@ -70,6 +74,8 @@ RUN apk add --no-cache curl openssl ca-certificates
 ARG FCLI_VERSION
 ARG TARGETPLATFORM
 ARG CACHE_BUST
+# Optional archive pin, particularly useful for rolling development releases.
+ARG FCLI_SHA256
 
 # Validate FCLI_VERSION is provided
 RUN test -n "$FCLI_VERSION" || (echo "ERROR: FCLI_VERSION build argument is required" && exit 1)
@@ -86,24 +92,33 @@ RUN mkdir -p /tmp/keys && \
     echo "VQIDAQAB" >> /tmp/keys/fortify.pub && \
     echo "-----END PUBLIC KEY-----" >> /tmp/keys/fortify.pub
 
-# Determine platform-specific archive name
-RUN case "$TARGETPLATFORM" in \
+# Determine platform-specific archive name.
+# The fcli release publishes a single linux/amd64 archive, so fail fast on anything else
+# instead of packaging a binary that cannot run on the target platform. BuildKit sets
+# TARGETPLATFORM; otherwise fall back to the host architecture and refuse non-amd64 hosts.
+RUN target="${TARGETPLATFORM:-}" && \
+    if [ -z "$target" ]; then \
+      case "$(uname -m)" in \
+        x86_64|amd64) target=linux/amd64 ;; \
+        *) echo "Cannot build on this host ($(uname -m)): the fcli Linux release only publishes an amd64 archive; pass --platform linux/amd64." && exit 1 ;; \
+      esac; \
+    fi && \
+    case "$target" in \
       "linux/amd64") ARCHIVE="fcli-linux.tgz" ;; \
-      "linux/arm64") ARCHIVE="fcli-linux.tgz" ;; \
-      *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
+      *) echo "Unsupported platform: ${target}. The fcli Linux release only publishes an amd64 archive; refusing to build a mismatched image (use --platform linux/amd64)." && exit 1 ;; \
     esac && \
     echo "$ARCHIVE" > /tmp/archive_name
 
 # Download fcli and signature
-# Note: CACHE_BUST arg forces re-download for rolling tags when release is updated
-RUN echo "Cache bust: ${CACHE_BUST}" && \
+RUN echo "Archive SHA-256: ${FCLI_SHA256}; cache bust: ${CACHE_BUST}" && \
     ARCHIVE=$(cat /tmp/archive_name) && \
     DOWNLOAD_URL="https://github.com/fortify/fcli/releases/download/${FCLI_VERSION}/${ARCHIVE}" && \
     SIGNATURE_URL="${DOWNLOAD_URL}.rsa_sha256" && \
     echo "Downloading fcli from: $DOWNLOAD_URL" && \
-    curl -fsSL "$DOWNLOAD_URL" -o "/tmp/${ARCHIVE}" && \
+    curl -fsSL --retry 3 --retry-all-errors --max-time 600 "$DOWNLOAD_URL" -o "/tmp/${ARCHIVE}" && \
+    if [ -n "$FCLI_SHA256" ]; then echo "$FCLI_SHA256  /tmp/$ARCHIVE" | sha256sum -c -; fi && \
     echo "Downloading signature from: $SIGNATURE_URL" && \
-    curl -fsSL "$SIGNATURE_URL" -o "/tmp/${ARCHIVE}.rsa_sha256"
+    curl -fsSL --retry 3 --retry-all-errors --max-time 600 "$SIGNATURE_URL" -o "/tmp/${ARCHIVE}.rsa_sha256"
 
 # Verify signature
 RUN ARCHIVE=$(cat /tmp/archive_name) && \
@@ -128,7 +143,7 @@ FROM ${ALPINE_BASE} AS fcli-alpine
 # Bring build args into this stage
 ARG FCLI_VERSION
 ARG ALPINE_BASE
-LABEL org.opencontainers.image.source="https://github.com/fortify/fcli" \
+LABEL org.opencontainers.image.source="https://github.com/fortify/fcli-docker" \
       org.opencontainers.image.vendor="Fortify" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.documentation="https://github.com/fortify/fcli#readme" \
@@ -142,7 +157,9 @@ RUN echo "fcli:x:10001:10001:fcli:/data:/sbin/nologin" >> /etc/passwd
 COPY --from=fcli-downloader /tmp/fcli-bin/fcli /usr/bin/fcli
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY welcome*.txt /usr/share/fcli/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Windows checkouts may retain CRLF despite .gitattributes. Normalize before exec.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    chmod 0755 /usr/local/bin/docker-entrypoint.sh
 ADD data.tgz /
 WORKDIR /data
 ENV FCLI_USER_HOME=/data
@@ -160,7 +177,7 @@ FROM ${UBI_BASE} AS fcli-ubi9
 # Bring build args into this stage
 ARG FCLI_VERSION
 ARG UBI_BASE
-LABEL org.opencontainers.image.source="https://github.com/fortify/fcli" \
+LABEL org.opencontainers.image.source="https://github.com/fortify/fcli-docker" \
       org.opencontainers.image.vendor="Fortify" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.documentation="https://github.com/fortify/fcli#readme" \
@@ -174,7 +191,9 @@ RUN echo "fcli:x:10001:10001:fcli:/data:/sbin/nologin" >> /etc/passwd
 COPY --from=fcli-downloader /tmp/fcli-bin/fcli /usr/bin/fcli
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY welcome*.txt /usr/share/fcli/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Windows checkouts may retain CRLF despite .gitattributes. Normalize before exec.
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    chmod 0755 /usr/local/bin/docker-entrypoint.sh
 ADD data.tgz /
 WORKDIR /data
 ENV FCLI_USER_HOME=/data
@@ -192,6 +211,7 @@ CMD ["/bin/bash"]
 FROM fcli-ubi9 AS fcli-ubi9-sc
 
 ARG SC_CLIENT_VERSION
+ARG ALLOW_STALE_TOOL_DEFINITIONS=false
 LABEL org.opencontainers.image.title="Fortify CLI (UBI9 + ScanCentral Client)" \
       org.opencontainers.image.description="Fortify CLI on Red Hat Universal Base Image 9, with ScanCentral Client pre-installed" \
       com.fortify.sc_client.version="${SC_CLIENT_VERSION}"
@@ -199,7 +219,18 @@ LABEL org.opencontainers.image.title="Fortify CLI (UBI9 + ScanCentral Client)" \
 USER root
 RUN test -n "$SC_CLIENT_VERSION" || \
       (echo "ERROR: SC_CLIENT_VERSION build argument is required for this target" && exit 1) && \
-    (fcli tool definitions update || echo "Warning: Could not update tool definitions; using bundled definitions") && \
+    # A stale tool definition could select an unverified sc-client patch release,
+    # so fail instead of silently falling back to the bundled definitions.
+    # Allow an explicit opt-out for offline or restricted build environments.
+    if ! fcli tool definitions update; then \
+      echo "ERROR: Could not update fcli tool definitions." >&2; \
+      echo "A stale definition could select an unverified ScanCentral Client patch release." >&2; \
+      if [ "${ALLOW_STALE_TOOL_DEFINITIONS}" != "true" ]; then \
+        echo "Re-run with --build-arg ALLOW_STALE_TOOL_DEFINITIONS=true to fall back to the definitions bundled with fcli." >&2; \
+        exit 1; \
+      fi; \
+      echo "WARNING: ALLOW_STALE_TOOL_DEFINITIONS=true; using the tool definitions bundled with fcli." >&2; \
+    fi && \
     fcli tool sc-client install \
       --version "$SC_CLIENT_VERSION" \
       --install-dir /opt/fortify/sc-client \
@@ -210,6 +241,44 @@ ENV SC_CLIENT_CMD=/opt/fortify/sc-client/bin/scancentral
 ENV PATH="/opt/fortify/sc-client/bin:${PATH}"
 USER fcli
 
+# Normalize the runner in the build stage; the minimal runtime needs no sed.
+FROM fcli-downloader AS bulk-audit-script
+COPY bulk-audit.sh /tmp/bulk-audit.sh
+RUN sed -i 's/\r$//' /tmp/bulk-audit.sh
+
+# ============================================================================
+# Stage: fcli-bulk-audit
+# One-shot runner for SSC/Aviator bulk audits. No credentials in the image.
+# ============================================================================
+FROM ${AMAZON_LINUX_BASE} AS fcli-bulk-audit
+ARG FCLI_VERSION
+ARG FCLI_SHA256
+ARG RUNNER_VERSION=development
+LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit" \
+      org.opencontainers.image.description="One-shot SSC and Aviator bulk-audit runner" \
+      org.opencontainers.image.source="https://github.com/fortify/fcli-docker" \
+      org.opencontainers.image.vendor="Fortify" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${RUNNER_VERSION}" \
+      com.fortify.fcli.version="${FCLI_VERSION}" \
+      com.fortify.fcli.archive.sha256="${FCLI_SHA256}"
+USER 0:0
+SHELL ["/bin/bash", "-c"]
+COPY --from=fcli-downloader /tmp/fcli-bin/fcli /usr/bin/fcli
+COPY --from=bulk-audit-script /tmp/bulk-audit.sh /usr/local/bin/fcli-bulk-audit
+RUN test -n "$FCLI_SHA256" || { echo "ERROR: FCLI_SHA256 is required for the bulk-audit image." >&2; exit 1; } && \
+    chmod 0755 /usr/local/bin/fcli-bulk-audit && \
+    echo "fcli:x:10001:10001:fcli:/work:/sbin/nologin" >> /etc/passwd && \
+    echo "fcli:x:10001:" >> /etc/group && \
+    for file in /usr/bin/* /usr/sbin/*; do if [[ -f $file && ( -u $file || -g $file ) ]]; then chmod a-s "$file"; fi; done && \
+    mkdir -p /work /logs && chown 10001:10001 /work /logs && chmod 0700 /logs
+USER 10001:10001
+# Verify packaged action interfaces without authenticating or contacting SSC.
+RUN /usr/local/bin/fcli-bulk-audit --check-image
+WORKDIR /tmp
+ENTRYPOINT ["/usr/local/bin/fcli-bulk-audit"]
+CMD []
+
 # ============================================================================
 # Stage: fcli-scratch
 # Minimal scratch-based image (default/preferred)
@@ -218,7 +287,7 @@ FROM scratch AS fcli-scratch
 
 # OCI labels - common across all images
 ARG FCLI_VERSION
-LABEL org.opencontainers.image.source="https://github.com/fortify/fcli" \
+LABEL org.opencontainers.image.source="https://github.com/fortify/fcli-docker" \
       org.opencontainers.image.vendor="Fortify" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.documentation="https://github.com/fortify/fcli#readme" \

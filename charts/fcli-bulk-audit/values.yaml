@@ -1,0 +1,63 @@
+image:
+  repository: fcli-bulk-audit
+  tag: 0.3.0-rc.1
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Default: a one-shot Job. Enable scheduling only after reviewing a live test.
+schedule:
+  enabled: false
+  cron: "0 2 * * *"
+  timeZone: Etc/UTC
+  suspend: true
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+
+audit:
+  action: audit-sast
+  dryRun: true
+  maxAudits: 1
+  # Empty considers all eligible versions within maxAudits.
+  filter: ""
+  excludeFilter: ""
+  timeoutSeconds: 3600
+  sscUrl: https://CHANGE_ME/ssc
+  # Set true to disable SSC TLS certificate verification at session login.
+  sscInsecure: false
+  aviatorUrl: https://CHANGE_ME
+  aviatorTenant: CHANGE_ME
+
+# Create this separately. The chart never creates or accepts secret values.
+# Required keys: ssc-token, aviator-token, aviator-private-key.
+existingSecret: fcli-bulk-audit-credentials
+truststore:
+  existingSecret: ""
+  key: truststore.jks
+  passwordKey: password
+  type: JKS
+
+job:
+  # The Job deadline adds the shutdown grace period and 15 seconds to audit.timeoutSeconds.
+  ttlSecondsAfterFinished: 86400
+  terminationGracePeriodSeconds: 45
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+storage:
+  sessionSizeLimit: 64Mi
+  temporarySizeLimit: 1Gi
+  logSizeLimit: 128Mi
+  # Empty uses a Pod-local emptyDir; set a PVC name to retain logs after Pod deletion.
+  existingLogClaim: ""
+podAnnotations: {}
+network:
+  restrictEgress: true
+nodeSelector:
+  kubernetes.io/arch: amd64

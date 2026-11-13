@@ -35,21 +35,23 @@ SHELL ["pwsh", "-Command"]
 # Build arguments
 ARG FCLI_VERSION
 ARG CACHE_BUST
+ARG FCLI_SHA256
 
 # Validate FCLI_VERSION is provided
 RUN $ErrorActionPreference = 'Stop'; \
     if (-not $env:FCLI_VERSION) { throw 'ERROR: FCLI_VERSION build argument is required' }
 
 # Create temp directory and download fcli with signature
-# Note: CACHE_BUST arg forces re-download for rolling tags when release is updated
 RUN $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; \
     Write-Host \"Cache bust: $env:CACHE_BUST\"; \
+    Write-Host "Archive SHA-256: $env:FCLI_SHA256"; \
     New-Item -ItemType Directory -Path C:\temp -Force | Out-Null; \
     Write-Host \"Downloading fcli $env:FCLI_VERSION...\"; \
     $url = \"https://github.com/fortify/fcli/releases/download/$env:FCLI_VERSION/fcli-windows.zip\"; \
     $sigUrl = \"$url.rsa_sha256\"; \
     Write-Host \"Download URL: $url\"; \
     Invoke-WebRequest -Uri $url -OutFile C:\temp\fcli-windows.zip; \
+    if ($env:FCLI_SHA256 -and (Get-FileHash C:\temp\fcli-windows.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:FCLI_SHA256) { throw 'Archive SHA-256 mismatch' }; \
     Write-Host \"Downloading signature...\"; \
     Invoke-WebRequest -Uri $sigUrl -OutFile C:\temp\fcli-windows.zip.rsa_sha256
 

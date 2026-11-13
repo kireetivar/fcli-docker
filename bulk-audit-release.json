@@ -1,0 +1,6 @@
+{
+  "runner_version": "0.3.0-rc.1",
+  "fcli_version": "v3.29.0",
+  "fcli_sha256": "9786f5ba4a7fa4d1e1917ad35058faaaaa407a70e1e2420d475695759bfadd4e",
+  "image_repository": "fcli-bulk-audit"
+}

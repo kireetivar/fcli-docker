@@ -1,0 +1,72 @@
+name: Validate bulk-audit
+on:
+  pull_request:
+    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', 'scripts/**', 'bulk-audit-release.json', '.github/workflows/**']
+  push:
+    branches: [main, kireetivar/bulk-audit-poc]
+    paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', 'scripts/**', 'bulk-audit-release.json', '.github/workflows/**']
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    # Match the GNU timeout semantics used by the Amazon Linux runtime.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: fortify/shared-github/actions/3rdparty/actions/checkout/v6@5ad1afec0f56a21b03f0887eea35505cb6a66554
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv .cache/test-venv
+          .cache/test-venv/bin/pip install -r tests/requirements.txt
+          mkdir -p .cache/helm
+          cd .cache/helm
+          archive=helm-v4.2.1-linux-amd64.tar.gz
+          curl -fsSLO "https://get.helm.sh/$archive"
+          curl -fsSLO "https://get.helm.sh/$archive.sha256sum"
+          sha256sum -c "$archive.sha256sum"
+          tar -xzf "$archive"
+          echo "$PWD/linux-amd64" >> "$GITHUB_PATH"
+      - name: Runner and deployment checks
+        run: |
+          .cache/test-venv/bin/python -m unittest discover -s tests -v
+          helm lint charts/fcli-bulk-audit
+          docker run --rm --network none -v "$PWD:/src:ro" \
+            koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d \
+            --severity=warning /src/linux/bulk-audit.sh /src/tests/smoke-images.sh /src/scripts/scan-image.sh /src/scripts/test-release-image.sh
+      - name: Validate release workflow syntax
+        run: |
+          docker run --rm --network none -v "$PWD:/src:ro" -w /src \
+            rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 \
+            -shellcheck= -pyflakes= .github/workflows/docker.yml .github/workflows/bulk-audit.yml
+      - name: Build and smoke-test Linux images without credentials
+        run: |
+          bash tests/smoke-images.sh
+          bash tests/smoke-images.sh --windows-checkout
+      - name: Scan source and audit image
+        env:
+          TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+        run: |
+          mkdir -p .cache/trivy
+          docker save fcli-test:fcli-bulk-audit -o .cache/bulk-audit.image.tar
+          scanner=(docker run --rm -v "$PWD:/src:ro" -v "$PWD/.cache:/audit"
+            "$TRIVY_IMAGE" --cache-dir /audit/trivy)
+          "${scanner[@]}" fs --scanners vuln,secret --exit-code 1 \
+            --skip-dirs /src/.git --skip-dirs /src/.cache /src
+          bash scripts/scan-image.sh .cache/bulk-audit.image.tar .cache/bulk-audit-reports
+      - name: Retain scan evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bulk-audit-vulnerability-report
+          path: .cache/bulk-audit-reports/
+          if-no-files-found: ignore
+          retention-days: 30

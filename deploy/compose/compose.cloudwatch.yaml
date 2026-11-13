@@ -1,0 +1,12 @@
+# Requires Docker Compose 2.24.4 or later.
+# The Docker daemon uses its AWS identity. Provision the log group and retention first.
+services:
+  bulk-audit:
+    logging: !override
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:?Set AWS_REGION}
+        awslogs-group: ${CLOUDWATCH_LOG_GROUP:?Set CLOUDWATCH_LOG_GROUP}
+        awslogs-create-group: "false"
+        # The default stream name is the container ID, which separates each run.
+        awslogs-create-stream: "true"

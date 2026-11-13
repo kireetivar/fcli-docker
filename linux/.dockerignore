@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!minimal-passwd
+!data.tgz
+!tmp.tgz
+!docker-entrypoint.sh
+!welcome*.txt
+!bulk-audit.sh
