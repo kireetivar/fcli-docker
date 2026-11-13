@@ -486,7 +486,7 @@ Before production use, the platform owner must complete these checks:
 
 The chart installs a NetworkPolicy when `network.restrictEgress` is true.
 That policy allows DNS and the HTTPS ports from `audit.sscUrl` and `audit.aviatorUrl`.
-The allowed ranges exclude link-local addresses. That exclusion blocks the cloud metadata address.
+The allowed ranges exclude IPv4 link-local addresses and the AWS IPv6 metadata address. IPv6 link-local addresses stay reachable.
 Set `network.restrictEgress` to false when the cluster uses an HTTP proxy, or when the policy controller rejects the chart policy.
 Confirm that the cluster enforces NetworkPolicy. A controller that ignores the object leaves egress open.
 The chart does not configure host crash-collection services.

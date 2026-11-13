@@ -137,7 +137,7 @@ class HelmTests(unittest.TestCase):
         self.assertEqual("true", env["SSC_INSECURE"])
         self.assertNotIn("AVIATOR_INSECURE", env)
 
-    def test_default_egress_blocks_link_local_and_uses_service_ports(self):
+    def test_default_egress_excludes_metadata_addresses_and_uses_service_ports(self):
         docs = self.documents("--set", "audit.sscUrl=https://ssc.example:8443",
                               "--set", "audit.aviatorUrl=https://aviator.example")
         policy = next(doc for doc in docs if doc["kind"] == "NetworkPolicy")
