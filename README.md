@@ -117,7 +117,7 @@ UBI9+ScanCentral Client tags carry a `-ubi9-sc{scVersion}` suffix.
 
 ### Prerequisites
 - Docker 20.10+ or Docker Desktop
-- Docker Buildx (for multi-platform builds)
+- Docker Buildx (default builder in current Docker). Linux images build for `linux/amd64` only: the fcli release publishes a single Linux (x86_64) archive, and the build refuses other platforms.
 
 ### Linux Images
 
@@ -149,11 +149,11 @@ docker build . \
   --target fcli-alpine \
   -t fcli:alpine
 
-# Build with custom base images
+# Build with pinned base images (this is the default; shown here to demonstrate overriding)
 docker build . \
   --build-arg FCLI_VERSION=v3.15.0 \
-  --build-arg ALPINE_BASE=alpine:3.23.0 \
-  --build-arg UBI_BASE=redhat/ubi9:9.7 \
+  --build-arg ALPINE_BASE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 \
+  --build-arg UBI_BASE=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e \
   --target fcli-scratch \
   -t fcli:scratch
 ```
@@ -390,9 +390,13 @@ docker inspect fortifydocker/fcli:latest | jq '.[0].Config.Labels'
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `FCLI_VERSION` | Yes | - | fcli release tag (e.g., `v3.15.0`) |
-| `ALPINE_BASE` | No | `alpine:3.23.0` | Alpine base image for downloader and alpine target |
-| `UBI_BASE` | No | `redhat/ubi9:9.7` | Red Hat UBI9 standard base image (not minimal) |
+| `ALPINE_BASE` | No | `alpine:3.23.4@sha256:5b10f…` | Alpine base image for downloader and alpine target (default is digest-pinned) |
+| `UBI_BASE` | No | `redhat/ubi9:9.8@sha256:1963e…` | Red Hat UBI9 standard base image, not minimal (default is digest-pinned) |
 | `SC_CLIENT_VERSION` | Required for `fcli-ubi9-sc` target | - | ScanCentral Client version to pre-install (e.g., `25.4`); resolved to latest patch release at build time |
+| `ALLOW_STALE_TOOL_DEFINITIONS` | No | `false` | Set to `true` to let the `fcli-ubi9-sc` build fall back to the tool definitions bundled with fcli when `fcli tool definitions update` fails; by default the build fails instead of risking an outdated sc-client selection |
+
+> The default `ALPINE_BASE` and `UBI_BASE` values (and the workflow input defaults) are pinned by digest.
+> When refreshing base images, update tag and digest together in both `linux/Dockerfile` and `.github/workflows/docker.yml`.
 
 ### Windows Dockerfile
 
@@ -421,11 +425,11 @@ The `.github/workflows/docker.yml` workflow provides:
 ### Triggering Builds
 
 ```bash
-# Via GitHub CLI — initial publish or full refresh
+# Via GitHub CLI — initial publish or full refresh (overrides the pinned default ubiBase)
 gh workflow run docker.yml \
   -f releaseTag=v3.15.0 \
   -f doPublish=true \
-  -f ubiBase=redhat/ubi9:9.7
+  -f ubiBase=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
 
 # Refresh existing images only (sc-client versions auto-detected from published tags)
 gh workflow run docker.yml \
@@ -453,19 +457,19 @@ Base images should be updated periodically for security patches:
    ```bash
    docker build . \
      --build-arg FCLI_VERSION=v3.14.0 \
-     --build-arg ALPINE_BASE=alpine:3.23.0 \
-     --build-arg UBI_BASE=redhat/ubi9:9.7 \
+     --build-arg ALPINE_BASE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11 \
+     --build-arg UBI_BASE=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e \
      --target fcli-scratch
    ```
 
-3. **Update defaults in Dockerfile** or **trigger workflow with custom bases**
+3. **Update the tag and digest together** in `linux/Dockerfile` and the workflow input defaults in `.github/workflows/docker.yml`
 
 4. **Republish existing fcli version** with updated base images:
    ```bash
    gh workflow run docker.yml \
      -f releaseTag=v3.15.0 \
      -f doPublish=true \
-     -f ubiBase=redhat/ubi9:9.8
+     -f ubiBase=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
    ```
    This creates new timestamped tags (e.g., `3.15.0-20260401120000`,
    `3.15.0-ubi9-20260401120000`, `3.15.0-ubi9-sc25.4-20260401120000`) while also

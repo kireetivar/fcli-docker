@@ -122,7 +122,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_download_layer_consumes_digest_before_fetching_archive(self):
         linux = (ROOT / 'linux/Dockerfile').read_text()
-        download = next(run for run in linux.split('\nRUN ') if 'curl -fsSL "$DOWNLOAD_URL"' in run)
+        download = next(run for run in linux.split('\nRUN ') if '"$DOWNLOAD_URL"' in run)
         self.assertIn('${FCLI_SHA256}', download)
         self.assertIn('sha256sum -c -', download)
         windows = (ROOT / 'windows/Dockerfile').read_text()

@@ -22,10 +22,10 @@ on:
         type: boolean
         default: true
       ubiBase:
-        description: 'Red Hat UBI base image (default: redhat/ubi9:9.8)'
+        description: 'Red Hat UBI base image (default: redhat/ubi9:9.8, digest-pinned)'
         required: false
         type: string
-        default: 'redhat/ubi9:9.8'
+        default: 'redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e'
       scClientVersions:
         description: |
           Additional ScanCentral Client versions to build (comma-separated, e.g. "25.4,26.2").
@@ -43,15 +43,23 @@ on:
         type: boolean
         default: false
       alpineBase:
-        description: 'Alpine base image (default: alpine:3.23.4)'
+        description: 'Alpine base image (default: alpine:3.23.4, digest-pinned)'
         required: false
         type: string
-        default: 'alpine:3.23.4'
+        default: 'alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11'
       servercoreVersions:
         description: 'Windows Server Core ltsc versions to build (comma-separated, default: ltsc2022)'
         required: false
         type: string
         default: 'ltsc2022,ltsc2025'
+      allowStaleToolDefinitions:
+        description: |
+          Let the ubi9-sc variants fall back to the tool definitions bundled with fcli when
+          'fcli tool definitions update' fails. Defaults to false (build fails instead of risking
+          an outdated ScanCentral Client patch release). Only enable for offline or restricted builds.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -123,6 +131,7 @@ jobs:
             ALPINE_BASE=${{ needs.plan.outputs.alpine_base }}
             UBI_BASE=${{ needs.plan.outputs.ubi_base }}
             SC_CLIENT_VERSION=${{ matrix.sc_version }}
+            ALLOW_STALE_TOOL_DEFINITIONS=${{ inputs.allowStaleToolDefinitions }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=${{ matrix.name }}
