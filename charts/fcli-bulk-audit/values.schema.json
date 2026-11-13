@@ -252,6 +252,18 @@
         "type": "string"
       }
     },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "restrictEgress": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "restrictEgress"
+      ]
+    },
     "nodeSelector": {
       "type": "object",
       "additionalProperties": {
@@ -270,6 +282,7 @@
     "resources",
     "storage",
     "podAnnotations",
+    "network",
     "nodeSelector"
   ],
   "$schema": "http://json-schema.org/draft-07/schema#"

@@ -57,5 +57,7 @@ storage:
   # Empty uses a Pod-local emptyDir; set a PVC name to retain logs after Pod deletion.
   existingLogClaim: ""
 podAnnotations: {}
+network:
+  restrictEgress: true
 nodeSelector:
   kubernetes.io/arch: amd64

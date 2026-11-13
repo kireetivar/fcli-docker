@@ -35,6 +35,7 @@
 # - FCLI_VERSION:       fcli version to download (required, e.g., "v3.14.0")
 # - ALPINE_BASE:        Alpine base image (default: alpine:3.23.4, digest-pinned)
 # - UBI_BASE:           Red Hat UBI base image (default: redhat/ubi9:9.8, digest-pinned)
+# - AMAZON_LINUX_BASE:  Amazon Linux 2023 minimal base for the bulk-audit target (digest-pinned)
 # - SC_CLIENT_VERSION:  ScanCentral Client version to install (required for fcli-ubi9-sc target)
 # - ALLOW_STALE_TOOL_DEFINITIONS: set to "true" to fall back to the fcli bundled tool
 #                       definitions when 'fcli tool definitions update' fails (default: false)
@@ -56,10 +57,9 @@
 # ============================================================================
 # Global build arguments (must be before any FROM to use in FROM statements)
 # ============================================================================
-# Defaults are digest-pinned to match the pinned bulk-audit base image; override the
-# whole ARG (tag and digest) together when refreshing base images.
 ARG ALPINE_BASE=alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 ARG UBI_BASE=redhat/ubi9:9.8@sha256:1963e00991088221a3405be7eb315a3dbc0be0f1f7440f0bd537d481cf33c83e
+ARG AMAZON_LINUX_BASE=public.ecr.aws/amazonlinux/amazonlinux:2023-minimal@sha256:158a9044f9dc0777f098b76c8b54346f6ed4560b9a6a416dec7a5ba3bc483af4
 
 # ============================================================================
 # Stage: fcli-downloader
@@ -250,11 +250,11 @@ RUN sed -i 's/\r$//' /tmp/bulk-audit.sh
 # Stage: fcli-bulk-audit
 # One-shot runner for SSC/Aviator bulk audits. No credentials in the image.
 # ============================================================================
-FROM public.ecr.aws/amazonlinux/amazonlinux:2023-minimal@sha256:d4495d25da60ef3f2d44bc7f6a2dd2ec1646c14414e0dfaaa44dc3ff653e1c2b AS fcli-bulk-audit
+FROM ${AMAZON_LINUX_BASE} AS fcli-bulk-audit
 ARG FCLI_VERSION
 ARG FCLI_SHA256
 ARG RUNNER_VERSION=development
-LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit (POC)" \
+LABEL org.opencontainers.image.title="Fortify CLI Bulk Audit" \
       org.opencontainers.image.description="One-shot SSC and Aviator bulk-audit runner" \
       org.opencontainers.image.source="https://github.com/fortify/fcli-docker" \
       org.opencontainers.image.vendor="Fortify" \
@@ -266,7 +266,8 @@ USER 0:0
 SHELL ["/bin/bash", "-c"]
 COPY --from=fcli-downloader /tmp/fcli-bin/fcli /usr/bin/fcli
 COPY --from=bulk-audit-script /tmp/bulk-audit.sh /usr/local/bin/fcli-bulk-audit
-RUN chmod 0755 /usr/local/bin/fcli-bulk-audit && \
+RUN test -n "$FCLI_SHA256" || { echo "ERROR: FCLI_SHA256 is required for the bulk-audit image." >&2; exit 1; } && \
+    chmod 0755 /usr/local/bin/fcli-bulk-audit && \
     echo "fcli:x:10001:10001:fcli:/work:/sbin/nologin" >> /etc/passwd && \
     echo "fcli:x:10001:" >> /etc/group && \
     for file in /usr/bin/* /usr/sbin/*; do if [[ -f $file && ( -u $file || -g $file ) ]]; then chmod a-s "$file"; fi; done && \

@@ -12,7 +12,8 @@ This summary covers the Linux bulk-audit release candidate. These controls do no
 - **Temporary sessions:** The runner creates private sessions and removes temporary data on normal exit or handled stop signals.
 - **Protected output:** The runner requests fcli credential masking and disables process memory dumps. Logs still require access controls.
 - **Execution limits:** Dry-run mode and one audit are defaults. Timeouts and resource limits bound execution.
-- **Automated checks:** The workflow scans source files for secrets and vulnerabilities. Image checks reject critical findings and fixable high findings.
+- **Restricted egress:** The Helm chart allows DNS and the HTTPS ports from the configured SSC and Aviator URLs. It blocks link-local metadata. Compose does not install an equivalent policy.
+- **Automated checks:** The workflow scans source files for secrets and vulnerabilities. Image checks reject critical findings, fixable high findings, and detected secrets.
 - **Build credentials:** Checkout does not retain Git credentials. The workflow uses a read-only repository token.
 
 See [release maintenance](bulk-audit-release.md) for artifact validation, the scan schedule, and production acceptance requirements.
@@ -23,7 +24,7 @@ See [release maintenance](bulk-audit-release.md) for artifact validation, the sc
   Rescan the release image. Resolve findings or record an approved risk decision.
 - **Review fcli dependencies:** Obtain the upstream dependency list. Operating system scans do not cover every dependency inside fcli.
 - **Protect credentials:** Configure Kubernetes storage encryption and access controls. Test credential replacement and expiry.
-- **Restrict network access:** Allow required service connections and block unnecessary cloud metadata access. Protect host crash collectors.
+- **Restrict network access:** Confirm the cluster enforces the chart NetworkPolicy. Add proxy ports when the environment uses a proxy. Protect host crash collectors.
 - **Validate logging:** Test CloudWatch delivery, access controls, and retention. The Helm chart does not install a collector.
 - **Verify results:** Run a live preview and one audit. Check SSC because fcli can return success after individual audit failures.
 - **Require build checks:** Configure merge and release rules to require successful security checks.

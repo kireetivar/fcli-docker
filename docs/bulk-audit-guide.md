@@ -89,8 +89,8 @@ The chart now calculates the deadline as `audit.timeoutSeconds + job.termination
 The defaults produce a 3660-second Job deadline.
 Use a new image tag after further code changes.
 For releases, prefer an image digest, which identifies exact image content.
-The audit image uses Amazon Linux 2023 Minimal with a pinned base digest in `linux/Dockerfile`.
-Update that digest, rebuild, and scan the image when Red Hat publishes security fixes.
+The audit image uses Amazon Linux 2023 Minimal. The base digest is pinned in `linux/Dockerfile`.
+When Amazon Linux publishes a security fix, update that digest, rebuild the image, and scan it.
 
 ## 3. Docker Compose test
 
@@ -484,6 +484,11 @@ Before production use, the platform owner must complete these checks:
 6. Repeat the dry run and one-audit test against the live test environment.
 7. Review SSC results because fcli can return zero after individual audit failures.
 
-The chart does not install network policies or configure host crash-collection services.
+The chart installs a NetworkPolicy when `network.restrictEgress` is true.
+That policy allows DNS and the HTTPS ports from `audit.sscUrl` and `audit.aviatorUrl`.
+The allowed ranges exclude link-local addresses. That exclusion blocks the cloud metadata address.
+Set `network.restrictEgress` to false when the cluster uses an HTTP proxy, or when the policy controller rejects the chart policy.
+Confirm that the cluster enforces NetworkPolicy. A controller that ignores the object leaves egress open.
+The chart does not configure host crash-collection services.
 The host owner must also protect or disable any system crash collector.
-See [Kubernetes secret guidance](https://kubernetes.io/docs/concepts/security/secrets-good-practices/) and [Red Hat security advisories](https://access.redhat.com/security/security-updates/).
+See [Kubernetes secret guidance](https://kubernetes.io/docs/concepts/security/secrets-good-practices/) and [Amazon Linux security advisories](https://alas.aws.amazon.com/).

@@ -7,6 +7,26 @@ app.kubernetes.io/instance: {{ .Release.Name | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- end -}}
+{{- define "bulk.httpsPort" -}}
+{{- $host := (urlParse .).host -}}
+{{- if regexMatch ":[0-9]+$" $host -}}
+{{- regexReplaceAll ".*:([0-9]+)$" $host "${1}" -}}
+{{- else -}}
+443
+{{- end -}}
+{{- end -}}
+
+{{- define "bulk.egressPeers" -}}
+- ipBlock:
+    cidr: 0.0.0.0/0
+    except:
+      - 169.254.0.0/16
+- ipBlock:
+    cidr: "::/0"
+    except:
+      - fd00:ec2::254/128
+{{- end -}}
+
 {{- define "bulk.image" -}}
 {{- if .Values.image.digest -}}
 {{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}

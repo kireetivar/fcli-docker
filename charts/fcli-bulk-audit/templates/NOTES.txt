@@ -6,4 +6,7 @@ Inspect logs:
   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} --all-containers=true --prefix=true
 
 fcli may return zero despite individual audit failures. Review action output and SSC results.
-See docs/bulk-audit-poc-guide.md before enabling live execution or a schedule.
+See docs/bulk-audit-guide.md before enabling live execution or a schedule.
+{{- if .Values.network.restrictEgress }}
+Egress allows DNS and the HTTPS ports from the SSC and Aviator URLs. Link-local metadata is blocked.
+{{- end }}

@@ -1,5 +1,9 @@
 # Required Changes for fortify/fcli Repository
 
+This file records the original move out of the fcli repository. It is not the current install or security guide.
+Use [the install guide](docs/bulk-audit-guide.md) and [release maintenance](docs/bulk-audit-release.md).
+The sample image tags and workflow inputs below are not current.
+
 This document describes the changes needed in the main `fortify/fcli` repository to integrate with the new standalone `fortify/fcli-docker` repository.
 
 ## Summary

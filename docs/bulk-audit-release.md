@@ -102,9 +102,10 @@ Recheck signal forwarding and deadline expiry before changing the validation hos
 
 [scan-image.sh](../scripts/scan-image.sh) owns the shared image policy:
 
-- Save the full package vulnerability report, including unfixed findings.
+- Save the full package vulnerability report, including unfixed findings, and any detected secrets.
 - Fail on any critical finding.
 - Fail on high findings with available fixes.
+- Fail on any detected secret.
 - Leave other findings visible for review.
 
 The bulk-audit workflow also scans tracked source content for secrets and dependency vulnerabilities.

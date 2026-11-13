@@ -15,13 +15,21 @@ CHART = ROOT / "charts/fcli-bulk-audit"
 
 @unittest.skipUnless(shutil.which("helm"), "Helm is required for template checks")
 class HelmTests(unittest.TestCase):
-    def render(self, *options, success=True):
+    def documents(self, *options, success=True):
         result = subprocess.run(["helm", "template", "poc", str(CHART), *options], capture_output=True, text=True)
         if not success:
             self.assertNotEqual(0, result.returncode, result.stdout)
             return result
         self.assertEqual(0, result.returncode, result.stderr)
-        return list(yaml.safe_load_all(result.stdout))[0]
+        return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+
+    def render(self, *options, success=True):
+        if not success:
+            return self.documents(*options, success=False)
+        docs = self.documents(*options)
+        workloads = [doc for doc in docs if doc.get("kind") in ("Job", "CronJob")]
+        self.assertEqual(1, len(workloads))
+        return workloads[0]
 
     def test_job_security_and_safe_defaults(self):
         doc = self.render()
@@ -31,8 +39,12 @@ class HelmTests(unittest.TestCase):
         self.assertFalse(pod["automountServiceAccountToken"])
         self.assertEqual("Never", pod["restartPolicy"])
         self.assertTrue(pod["securityContext"]["runAsNonRoot"])
+        self.assertEqual(10001, pod["securityContext"]["runAsUser"])
+        self.assertEqual("RuntimeDefault", pod["securityContext"]["seccompProfile"]["type"])
         container = pod["containers"][0]
         self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])
+        self.assertFalse(container["securityContext"]["allowPrivilegeEscalation"])
+        self.assertEqual(["ALL"], container["securityContext"]["capabilities"]["drop"])
         env = {item["name"]: item["value"] for item in container["env"]}
         self.assertEqual("true", env["BULK_AUDIT_DRY_RUN"])
         self.assertEqual("1", env["BULK_AUDIT_MAX_AUDITS"])
@@ -104,7 +116,8 @@ class HelmTests(unittest.TestCase):
 
     def test_invalid_values_rejected(self):
         for setting in ("audit.action=arbitrary", "audit.maxAudits=0", "audit.sscUrl=http://insecure",
-                        "audit.sscInsecure=yes", "job.activeDeadlineSeconds=100", "image.digest=bad", "unknown=value"):
+                        "audit.sscInsecure=yes", "job.activeDeadlineSeconds=100", "image.digest=bad",
+                        "network.restrictEgress=yes", "unknown=value"):
             with self.subTest(setting=setting):
                 self.render("--set", setting, success=False)
 
@@ -123,6 +136,36 @@ class HelmTests(unittest.TestCase):
         env = {item["name"]: item["value"] for item in container["env"]}
         self.assertEqual("true", env["SSC_INSECURE"])
         self.assertNotIn("AVIATOR_INSECURE", env)
+
+    def test_default_egress_blocks_link_local_and_uses_service_ports(self):
+        docs = self.documents("--set", "audit.sscUrl=https://ssc.example:8443",
+                              "--set", "audit.aviatorUrl=https://aviator.example")
+        policy = next(doc for doc in docs if doc["kind"] == "NetworkPolicy")
+        workload = next(doc for doc in docs if doc["kind"] == "Job")
+        pod = workload["spec"]["template"]
+        self.assertEqual(pod["metadata"]["labels"], policy["spec"]["podSelector"]["matchLabels"])
+        self.assertEqual([], policy["spec"]["ingress"])
+        ports = set()
+        blocked = set()
+        for rule in policy["spec"]["egress"]:
+            for item in rule.get("ports", []):
+                ports.add((item["protocol"], item["port"]))
+            for peer in rule.get("to", []):
+                blocked.update(peer["ipBlock"]["except"])
+        self.assertEqual({("UDP", 53), ("TCP", 53), ("TCP", 443), ("TCP", 8443)}, ports)
+        self.assertIn("169.254.0.0/16", blocked)
+        self.assertIn("fd00:ec2::254/128", blocked)
+
+    def test_duplicate_https_port_is_listed_once(self):
+        docs = self.documents()
+        policy = next(doc for doc in docs if doc["kind"] == "NetworkPolicy")
+        service_ports = [item["port"] for rule in policy["spec"]["egress"] for item in rule.get("ports", [])
+                         if item["protocol"] == "TCP" and item["port"] != 53]
+        self.assertEqual([443], service_ports)
+
+    def test_egress_policy_is_omitted_when_disabled(self):
+        docs = self.documents("--set", "network.restrictEgress=false")
+        self.assertFalse(any(doc["kind"] == "NetworkPolicy" for doc in docs))
 
 
 @unittest.skipUnless(shutil.which("docker"), "Docker Compose is required for configuration checks")
@@ -148,6 +191,19 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual('no', service['restart'])
         self.assertEqual('10001:10001', service['user'])
         self.assertEqual(['ALL'], service['cap_drop'])
+        self.assertIn('no-new-privileges:true', service['security_opt'])
+        self.assertEqual(256, service['pids_limit'])
+        self.assertTrue(service['init'])
+        self.assertEqual(service['mem_limit'], service['memswap_limit'])
+        # Compose JSON omits a zero ulimit. The YAML config keeps soft and hard.
+        rendered = subprocess.run(
+            ['docker', 'compose', '--env-file', str(ROOT / 'deploy/compose/.env.example'),
+             '-f', str(ROOT / 'deploy/compose/compose.yaml'), 'config'],
+            capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, rendered.returncode, rendered.stderr)
+        core = yaml.safe_load(rendered.stdout)['services']['bulk-audit']['ulimits']['core']
+        self.assertEqual({'soft': 0, 'hard': 0}, core)
+        self.assertTrue(any(mount.startswith('/work:') and 'noexec' in mount for mount in service['tmpfs']))
         self.assertEqual('true', service['environment']['BULK_AUDIT_DRY_RUN'])
         self.assertEqual('1', service['environment']['BULK_AUDIT_MAX_AUDITS'])
         self.assertEqual('false', service['environment']['SSC_INSECURE'])

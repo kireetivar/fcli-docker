@@ -17,8 +17,13 @@ services:
     restart: "no"
     stop_grace_period: 45s
     cpus: 2.0
-    mem_limit: 4g
+    mem_limit: &bulk_memory 4g
+    memswap_limit: *bulk_memory
     pids_limit: 256
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     volumes:
       - audit-logs:/logs
     tmpfs:

@@ -1,4 +1,4 @@
-name: Validate bulk-audit POC
+name: Validate bulk-audit
 on:
   pull_request:
     paths: ['linux/**', 'deploy/**', 'charts/**', 'tests/**', 'scripts/**', 'bulk-audit-release.json', '.github/workflows/**']

@@ -292,7 +292,7 @@ CI means continuous integration. CI runs automated checks when repository change
 | `tests/test_deployments.py` | Checks generated Helm and Compose settings, security controls, and credential mappings. |
 | `tests/smoke-images.sh` | Builds images and checks basic startup. Also checks simulated Windows checkout formatting. |
 | `tests/requirements.txt` | Selects the PyYAML version used to read deployment settings during tests. |
-| `.github/workflows/bulk-audit.yml` | Runs POC checks and security scans. Fails for critical image findings and fixable high image findings. |
+| `.github/workflows/bulk-audit.yml` | Runs the release-candidate checks and security scans. Fails for critical image findings, fixable high image findings, and detected image secrets. |
 | `.github/workflows/docker.yml` | Builds and optionally publishes general fcli image variants. Does not publish the audit target in its current matrix. |
 | `.github/workflows/fortify-analysis.yml` | Calls the shared Fortify on Demand analysis workflow. Requires the repository's analysis configuration. |
 | `.github/workflows/bump-shared-github.yml` | Calls a shared workflow that maintains references to shared GitHub automation. |
